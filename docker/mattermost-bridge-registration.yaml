@@ -1,0 +1,40 @@
+# Mattermost Bridge Application Service Registration
+# This file registers the Mattermost Bridge as a Matrix Application Service
+
+id: mattermost-bridge
+
+# URL where Matrix will send events - points to the Mattermost plugin endpoint
+# For local development, use the Docker host or host.docker.internal
+url: http://host.docker.internal:8066/plugins/com.mattermost.plugin-matrix-bridge
+
+# Token that Mattermost uses to authenticate to Matrix (Application Service token)
+# IMPORTANT: Generate this in Mattermost plugin settings and copy here
+as_token: 3ede8005d958202feb44354a4b485ad323df4710311981ece60ddbf724af26d9
+
+# Token that Matrix uses to send events to Mattermost (Homeserver token)  
+# IMPORTANT: Generate this in Mattermost plugin settings and copy here
+hs_token: 7edce377072ab4375495e8560f8aa63f1abac29bfcf83294b3f07ae020c8b05d
+
+# The localpart of the bridge bot user (@_mattermost_bridge:synapse)
+sender_localpart: _mattermost_bridge
+
+# Rate limiting for this application service
+rate_limited: false
+
+# Namespaces define which users/rooms/aliases the bridge controls
+namespaces:
+  # Users created by the bridge (ghost users for Mattermost users)
+  users:
+    - exclusive: true
+      regex: "@_mattermost_.*:synapse"
+  
+  # Room aliases created by the bridge
+  aliases:
+    - exclusive: true
+      regex: "#_mattermost_.*:synapse"
+  
+  # Rooms - empty means the bridge doesn't exclusively own any room IDs
+  rooms: []
+
+# Protocols this bridge supports (empty for basic bridging)
+protocols: []

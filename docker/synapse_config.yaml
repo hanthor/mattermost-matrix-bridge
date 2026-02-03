@@ -1,4 +1,4 @@
-server_name: "localhost"
+server_name: "synapse"
 pid_file: /data/homeserver.pid
 public_baseurl: http://localhost:8888/
 
@@ -17,7 +17,7 @@ database:
     user: synapse
     password: synapse
     database: synapse
-    host: postgres
+    host: synapse-db
     port: 5432
     cp_min: 5
     cp_max: 10
