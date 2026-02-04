@@ -1,164 +1,93 @@
-# Mattermost Bridge for Matrix
-
-[![Build Status](https://github.com/mattermost/mattermost-plugin-matrix-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/mattermost/mattermost-plugin-matrix-bridge/actions/workflows/ci.yml)
-
-A bidirectional bridge that connects Mattermost and Matrix, enabling real-time message synchronization between platforms.
-
-## Requires
-
-- Mattermost server v10.7.1 or newer, with Pro, Enterprise or higher license
-- A Matrix server, such as [Synapse](https://github.com/element-hq/synapse) v1.119
-
-## Features
-
-- **Bidirectional Sync**: Messages, reactions, and edits sync automatically in both directions
-- **Real Users**: Messages appear from actual users, not bots, with authentic names and avatars
-- **Rich Content**: Full support for formatting, emoji reactions, threads, and file attachments
-- **Easy Setup**: Simple configuration with automatic registration file generation
-- **Secure**: Loop prevention, proper authentication, and namespace isolation
+# Mattermost-Matrix Bridge E2E Testing Environment
 
 ## Quick Start
 
-### 1. Install Plugin
-- Download from [releases](https://github.com/mattermost/mattermost-plugin-matrix-bridge/releases)
-- Upload via System Console → Plugins → Plugin Management
-
-### 2. Configure Settings
-- Go to System Console → Plugins → Matrix Bridge
-- Set your Matrix homeserver URL (e.g., `https://matrix.example.com`)
-- Generate Application Service and Homeserver tokens
-- Enable message synchronization
-
-### 3. Setup Matrix Homeserver
-- Download the registration file from the admin console
-- Add it to your Matrix homeserver's `app_service_config_files`
-- Restart your homeserver
-
-### 4. Connect Channels
-Use slash commands to bridge channels:
-
-```
-/matrix test                            # Test Matrix connection and configuration
-/matrix create "Room Name"              # Create new Matrix room
-/matrix map #room:matrix.example.com    # Map to existing room
-/matrix status                          # Check bridge health
-```
-
-## How It Works
-
-1. **Create Mapping**: Link a Mattermost channel to a Matrix room
-2. **Enable Sharing**: Configure the channel for shared channels in Channel Settings
-3. **Start Chatting**: Messages automatically sync between platforms with full user attribution
-
-**What Gets Synced:**
-- Messages (with formatting and mentions)
-- Emoji reactions (4,400+ emoji support)
-- Message edits and deletions
-- User profiles with display names and avatars
-- Reply threads
-
-## Requirements
-
-- Mattermost Server 10.7.1+
-- Matrix homeserver with Application Service support (Synapse, Dendrite, etc.)
-- Admin access to both platforms
-
-## Configuration
-
-| Setting | Description |
-|---------|-------------|
-| Matrix Server URL | Your Matrix homeserver URL |
-| Application Service Token | Generated token for Matrix authentication |
-| Homeserver Token | Generated token for webhook security |
-| Enable Message Sync | Toggle bidirectional synchronization |
-
-## Development
-
+### 1. Clean Start (Fresh Slate)
 ```bash
-# Build everything
-make all
-
-# Run tests
-make test
-
-# Deploy to local Mattermost
-make deploy
+./cleanup.sh --full  # Full wipe including databases
+# OR
+./cleanup.sh         # Soft cleanup (preserves data)
 ```
 
-### Emoji Generation
-
-To generate the emoji mappings in the `server/emoji_mappings_generated.go` file:
-
+### 2. Setup Environment
 ```bash
-make generate-emoji
+./setup.sh           # Starts all services with smart port detection
 ```
 
-## Local Development with Matrix Synapse
-
-For local development and testing, you can run a Matrix Synapse server using Docker Compose.
-
-### Prerequisites
-
-1. Install and configure the Mattermost Matrix Bridge plugin first
-2. Generate the bridge registration file through the plugin configuration
-3. Copy the generated registration file to `docker/mattermost-bridge-registration.yaml`
-
-### Starting the Matrix Synapse Server
-
-1. Start the services:
-   ```bash
-   docker-compose up -d
-   ```
-
-2. Create an admin user:
-   ```bash
-   docker exec -it mattermost-plugin-matrix-bridge-synapse-1 register_new_matrix_user -c /data/homeserver.yaml -u admin -p admin123 -a http://localhost:8008
-   ```
-
-3. The Matrix server will be available at `http://localhost:8888`
-
-### Configuration Notes
-
-- The Synapse server is configured to use PostgreSQL as the database
-- Registration is enabled for development purposes
-- App service configuration is loaded from `docker/mattermost-bridge-registration.yaml`
-- Room list publication is restricted to the bridge user only
-
-### Stopping the Services
-
+### 3. Provision Mattermost
 ```bash
-docker-compose down
+./provision_mm.sh    # Creates admin user, team, channel, and configures bridge
 ```
 
-To completely reset (remove all data):
-```bash
-docker-compose down -v
-```
+## Scripts Overview
+
+| Script | Purpose |
+|--------|---------|
+| `cleanup.sh` | Reset environment (use `--full` for complete wipe) |
+| `setup.sh` | Start all Docker services with port conflict detection |
+| `provision_mm.sh` | Configure Mattermost and bridge connection |
+
+## Access URLs
+
+After running `setup.sh` and `provision_mm.sh`:
+
+- **Mattermost**: http://localhost:8065
+  - User: `sysadmin` / `Sys@dmin123`
+  - Team: "Test Team" → "test-channel"
+
+- **Element** (Matrix Client): http://localhost:8080
+  - Create account or login
+
+- **Synapse** (Matrix Server): http://localhost:8008
+
+> **Note:** Ports may differ if defaults are in use. Check script output for actual URLs.
+
+## Testing the Bridge
+
+1. Login to Mattermost at http://localhost:8065
+2. Navigate to "Test Team" → "test-channel"
+3. Send a message
+4. Open Element at http://localhost:8080 and create/login to Matrix account
+5. Look for the bridged room (`#mattermost_test-channel:localhost`)
+6. Verify message appears in Matrix
 
 ## Troubleshooting
 
-**Connection Issues:**
-- Verify Matrix server URL and tokens are correct
-- Check that registration file is installed on Matrix homeserver
-- Use `/matrix status` to diagnose problems
+### View Logs
+```bash
+# All services
+docker compose logs
 
-**Sync Problems:**
-- Ensure channel is configured for shared channels
-- Check that both platforms can reach each other
-- Review plugin logs for detailed error information
+# Specific service
+docker compose logs bridge
+docker compose logs synapse
+docker compose logs mattermost
+```
 
-## Support
+### Check Status
+```bash
+docker compose ps
+```
 
-- [GitHub Issues](https://github.com/mattermost/mattermost-plugin-matrix-bridge/issues)
-- [Matrix Specification](https://spec.matrix.org/)
-- [Mattermost Plugin Documentation](https://developers.mattermost.com/integrate/plugins/)
+### Full Reset
+```bash
+./cleanup.sh --full
+./setup.sh
+./provision_mm.sh
+```
 
-## Roadmap
+### Port Conflicts
+The `setup.sh` script automatically detects port conflicts and uses alternative ports.
+Check the script output or `.env.urls` file for actual URLs.
 
-- Support multiple Matrix instances
-- Expose more Share Channels APIs in plugin API
-- Improve support for private, encrypted channels
+## File Structure
 
-## License
+- `docker-compose.yaml` - Service definitions
+- `config.yaml` - Bridge configuration (generated)
+- `registration.yaml` - Appservice registration (generated)
+- `synapse-data/` - Synapse homeserver data
+- `.env.urls` - Current service URLs (generated)
 
-MIT License - see [LICENSE](LICENSE) file for details.
+## Documentation
+
+See `TESTING.md` for detailed testing procedures and manual test scenarios.

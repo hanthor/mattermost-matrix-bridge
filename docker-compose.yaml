@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: synapse_password
+      POSTGRES_DB: synapse
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - bridge_net
+
+  synapse:
+    image: matrixdotorg/synapse:latest
+    restart: unless-stopped
+    environment:
+      SYNAPSE_SERVER_NAME: localhost
+      SYNAPSE_REPORT_STATS: "no"
+    volumes:
+      - ./synapse-data:/data
+      - ./registration.yaml:/data/registration.yaml
+    ports:
+      - 8080:8008
+    depends_on:
+      - postgres
+    networks:
+      - bridge_net
+
+  element:
+    image: vectorim/element-web:latest
+    restart: unless-stopped
+    ports:
+      - 8080:80
+    volumes:
+      - ./element-config.json:/app/config.json
+    networks:
+      - bridge_net
+
+  mattermost:
+    image: mattermost/mattermost-team-edition:latest
+    restart: unless-stopped
+    ports:
+      - 8080:8065
+    environment:
+      MM_SERVICESETTINGS_SITEURL: http://localhost:8065
+      MM_SERVICESETTINGS_ENABLELOCALMODE: "true"
+      MM_SERVICESETTINGS_LOCALMODESOCKETLOCATION: "/var/tmp/mattermost_local.socket"
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: postgres://mmuser:mmpassword@postgres-mm:5432/mattermost?sslmode=disable&connect_timeout=10
+    depends_on:
+      - postgres-mm
+    networks:
+      - bridge_net
+
+  postgres-mm:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mmuser
+      POSTGRES_PASSWORD: mmpassword
+      POSTGRES_DB: mattermost
+    volumes:
+      - postgres_mm_data:/var/lib/postgresql/data
+    networks:
+      - bridge_net
+
+  bridge:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    volumes:
+      - ./config.yaml:/data/config.yaml
+      - ./registration.yaml:/data/registration.yaml
+    depends_on:
+      - synapse
+      - mattermost
+    # Changing to bridge_net to be cleaner, but config needs to point to 'synapse' and 'mattermost' hostnames
+    networks:
+      - bridge_net
+
+networks:
+  bridge_net:
+
+volumes:
+  postgres_data:
+  postgres_mm_data:

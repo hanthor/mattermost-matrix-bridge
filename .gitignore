@@ -1,22 +1,45 @@
-bin/
-dist/
-webapp/src/manifest.ts
-server/manifest.go
-tools/emoji_generator
+# Generated files
+config.yaml
+registration.yaml
+.env.urls
 
-# Test binaries
-server/server
-server/server.test
-*.test
+# Synapse data
+synapse-data/
 
-# Mac
-.DS_Store
+# Docker volumes
+postgres_data/
+postgres_mm_data/
 
-# Jetbrains
+# Element config (generated)
+element-config.json
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# Backups
+*.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+*.so
+.Python
+
+# IDE
+.vscode/
 .idea/
+*.swp
+*.swo
+*~
 
-# VS Code
-.vscode
+# OS
+.DS_Store
+Thumbs.db
 
-# Matrix bridge registration file
-docker/mattermost-bridge-registration.yaml
+# Logs
+*.log
