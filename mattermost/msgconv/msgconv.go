@@ -24,6 +24,8 @@ func New(br *bridgev2.Bridge) *MessageConverter {
 type MattermostClientProvider interface {
 	GetClient() *model.Client4
 	GetFile(ctx context.Context, fileID string) ([]byte, error)
+	GetFileInfo(ctx context.Context, fileID string) (*model.FileInfo, error)
+	GetFileWithInfo(ctx context.Context, fileID string) ([]byte, *model.FileInfo, error)
 	UploadFile(ctx context.Context, data []byte, channelID, filename string) (*model.FileInfo, error)
 }
 

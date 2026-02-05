@@ -78,58 +78,69 @@ func (mc *MessageConverter) fileToMatrix(
 ) *bridgev2.ConvertedMessagePart {
 	log := zerolog.Ctx(ctx).With().Str("file_id", fileID).Logger()
 
-	// We need file info first? Or just download it?
-	// Mattermost API GetFile usually returns the bytes.
-	// But we also need metadata (filename, mime type).
-	// Ideally we fetch info then download.
-	// client.GetFile(fileID) -> returns bytes. `client.GetFileInfo(fileID)` returns metadata.
-	// However, our wrapper `MattermostClientProvider` currently only has `GetFile` returning bytes.
-	// We might need to update that interface or just download and sniff mime type.
-	// BUT, `GetFile` in Mattermost driver usually implies fetching content.
-	
-	// Let's assume we update `MattermostClientProvider` or `Client` to provide file info. 
-	// For now, let's try to just download it and guess.
-	// Actually, `model.FileInfo` exists in Mattermost.
-	
-	data, err := client.GetFile(ctx, fileID)
+	// Get file with metadata for better filename and mime type detection
+	data, fileInfo, err := client.GetFileWithInfo(ctx, fileID)
 	if err != nil {
-		log.Err(err).Msg("Failed to download file from Mattermost")
+		log.Err(err).Msg("Failed to get file with info from Mattermost")
+		// Fallback to just downloading the file
+		data, err = client.GetFile(ctx, fileID)
+		if err != nil {
+			log.Err(err).Msg("Failed to download file from Mattermost")
+			return nil
+		}
+	}
+	
+	// Determine filename and mime type
+	var fileName, mimeType string
+	if fileInfo != nil {
+		fileName = fileInfo.Name
+		mimeType = fileInfo.MimeType
+		if mimeType == "" {
+			mimeType = http.DetectContentType(data)
+		}
+	} else {
+		// Fallback: detect content type and generate filename
+		mimeType = http.DetectContentType(data)
+		fileName = "file"
+		if exts, _ := mime.ExtensionsByType(mimeType); len(exts) > 0 {
+			fileName += exts[0]
+		}
+	}
+
+	// Check file size against limit
+	if mc.MaxFileSize > 0 && int64(len(data)) > mc.MaxFileSize {
+		log.Warn().Int64("size", int64(len(data))).Int64("max", mc.MaxFileSize).Msg("File too large, skipping")
 		return nil
 	}
-	
-	// We need to guess filename/mimetype if not available.
-	// Wait, we can get file info from client if we implement it.
-	// Let's assume we can get it. For now, simplistic approach.
-	
-	mimeType := http.DetectContentType(data)
-	fileName := "file" 
-	// Try to get extension from mime
-	if exts, _ := mime.ExtensionsByType(mimeType); len(exts) > 0 {
-		fileName += exts[0]
-	}
 
-	uploadMime := mimeType
-	uploadFileName := fileName
-
-	mxc, file, err := intent.UploadMedia(ctx, portal.MXID, data, uploadFileName, uploadMime)
+	mxc, file, err := intent.UploadMedia(ctx, portal.MXID, data, fileName, mimeType)
 	if err != nil {
 		log.Err(err).Msg("Failed to upload file to Matrix")
 		return nil
 	}
 
 	content := &event.MessageEventContent{
-		Body: uploadFileName,
+		Body: fileName,
 		Info: &event.FileInfo{
-			MimeType: uploadMime,
+			MimeType: mimeType,
 			Size:     len(data),
 		},
 	}
+	
+	// Add image dimensions if available
+	if fileInfo != nil && (mimeType == "image/jpeg" || mimeType == "image/png" || mimeType == "image/gif" || strings.HasPrefix(mimeType, "image/")) {
+		if fileInfo.Width > 0 && fileInfo.Height > 0 {
+			content.Info.Width = fileInfo.Width
+			content.Info.Height = fileInfo.Height
+		}
+	}
+	
 	if file != nil {
 		content.File = file
 	} else {
 		content.URL = mxc
 	}
-	content.MsgType = mimeToMsgType(uploadMime)
+	content.MsgType = mimeToMsgType(mimeType)
 
 	return &bridgev2.ConvertedMessagePart{
 		ID:      partID,

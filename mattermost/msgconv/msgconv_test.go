@@ -46,6 +46,25 @@ func (m *MockAPI) GetFile(ctx context.Context, fileID string) ([]byte, error) {
 	args := m.Called(ctx, fileID)
 	return args.Get(0).([]byte), args.Error(1)
 }
+func (m *MockAPI) GetFileInfo(ctx context.Context, fileID string) (*model.FileInfo, error) {
+	args := m.Called(ctx, fileID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*model.FileInfo), args.Error(1)
+}
+func (m *MockAPI) GetFileWithInfo(ctx context.Context, fileID string) ([]byte, *model.FileInfo, error) {
+	args := m.Called(ctx, fileID)
+	var data []byte
+	var info *model.FileInfo
+	if args.Get(0) != nil {
+		data = args.Get(0).([]byte)
+	}
+	if args.Get(1) != nil {
+		info = args.Get(1).(*model.FileInfo)
+	}
+	return data, info, args.Error(2)
+}
 func (m *MockAPI) UploadFile(ctx context.Context, data []byte, channelID, filename string) (*model.FileInfo, error) {
 	args := m.Called(ctx, data, channelID, filename)
 	return args.Get(0).(*model.FileInfo), args.Error(1)
@@ -117,7 +136,8 @@ func TestToMatrix_Text(t *testing.T) {
 
 func TestToMatrix_File(t *testing.T) {
 	mc := &MessageConverter{
-		ServerName: "example.com",
+		ServerName:  "example.com",
+		MaxFileSize: 50 * 1024 * 1024,
 	}
 
 	ctx := context.Background()
@@ -136,26 +156,30 @@ func TestToMatrix_File(t *testing.T) {
 	
 	fileID := "file123"
 	fileContent := []byte("fake image")
+	fileInfo := &model.FileInfo{
+		Id:       fileID,
+		Name:     "test.png",
+		MimeType: "image/png",
+		Size:     int64(len(fileContent)),
+		Width:    100,
+		Height:   100,
+	}
 	post := &model.Post{
 		Message: "",
 		FileIds: []string{fileID},
 	}
 	
-	mockAPI.On("GetFile", mock.Anything, fileID).Return(fileContent, nil)
-	mockMatrix.On("UploadMedia", mock.Anything, portal.MXID, fileContent, "file", "image/png").Return("mxc://example.com/xyz", nil, nil)
-	
-	// Note: Our fileToMatrix implementation detects content type from bytes.
-	// "fake image" might default to text/plain.
-	// Let's rely on detection logic or update test expectation.
-	// http.DetectContentType([]byte("fake image")) -> likely text/plain
-	
-	mockMatrix.ExpectedCalls = nil // Clear previous expectation
-	mockMatrix.On("UploadMedia", mock.Anything, portal.MXID, fileContent, "file.asc", "text/plain; charset=utf-8").Return("mxc://example.com/xyz", nil, nil)
+	// Mock GetFileWithInfo to return both content and metadata
+	mockAPI.On("GetFileWithInfo", mock.Anything, fileID).Return(fileContent, fileInfo, nil)
+	mockMatrix.On("UploadMedia", mock.Anything, portal.MXID, fileContent, "test.png", "image/png").Return("mxc://example.com/xyz", nil, nil)
 
 	converted := mc.ToMatrix(ctx, portal, mockMatrix, source, post)
 	
 	assert.Len(t, converted.Parts, 1)
 	assert.Equal(t, event.EventMessage, converted.Parts[0].Type)
-	assert.Equal(t, "file.asc", converted.Parts[0].Content.Body)
+	assert.Equal(t, "test.png", converted.Parts[0].Content.Body)
 	assert.Equal(t, id.ContentURIString("mxc://example.com/xyz"), converted.Parts[0].Content.URL)
+	// Verify image dimensions are set
+	assert.Equal(t, 100, converted.Parts[0].Content.Info.Width)
+	assert.Equal(t, 100, converted.Parts[0].Content.Info.Height)
 }

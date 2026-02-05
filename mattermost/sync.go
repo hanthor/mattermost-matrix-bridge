@@ -231,11 +231,21 @@ func (s *SyncEngine) SyncChannel(ctx context.Context, channel *model.Channel) er
 
 // SyncUsers synchronizes all Mattermost users to Matrix ghosts
 func (s *SyncEngine) SyncUsers(ctx context.Context) error {
-	fmt.Printf("INFO: Syncing users...\n")
+	fmt.Printf("INFO: Syncing users...\\n")
 	
 	page := 0
 	perPage := 200
 	totalUsers := 0
+	createdMatrixUsers := 0
+	
+	// Create Matrix Admin client if needed
+	var matrixAdmin *MatrixAdminClient
+	if s.Connector.Config.Mirror.CreateMatrixAccounts && s.Connector.Config.SynapseAdmin.Token != "" {
+		matrixAdmin = NewMatrixAdminClient(
+			s.Connector.Config.SynapseAdmin.URL,
+			s.Connector.Config.SynapseAdmin.Token,
+		)
+	}
 	
 	for {
 		users, _, err := s.Connector.Client.GetUsers(ctx, page, perPage, "")
@@ -256,8 +266,15 @@ func (s *SyncEngine) SyncUsers(ctx context.Context) error {
 			ghostID := networkid.UserID(user.Id)
 			_, err := s.Connector.Bridge.GetGhostByID(ctx, ghostID)
 			if err != nil {
-				fmt.Printf("WARN: Failed to get/create ghost for user %s: %v\n", user.Username, err)
+				fmt.Printf("WARN: Failed to get/create ghost for user %s: %v\\n", user.Username, err)
 				continue
+			}
+			
+			// Optionally create a real Matrix account for the user
+			if matrixAdmin != nil {
+				if created := s.CreateMatrixUserIfNeeded(ctx, matrixAdmin, user); created {
+					createdMatrixUsers++
+				}
 			}
 			
 			s.syncedUsers[user.Id] = true
@@ -270,8 +287,46 @@ func (s *SyncEngine) SyncUsers(ctx context.Context) error {
 		}
 	}
 	
-	fmt.Printf("INFO: Synced %d users\n", totalUsers)
+	fmt.Printf("INFO: Synced %d users, created %d Matrix accounts\\n", totalUsers, createdMatrixUsers)
 	return nil
+}
+
+// CreateMatrixUserIfNeeded creates a Matrix account for a Mattermost user if it doesn't exist
+func (s *SyncEngine) CreateMatrixUserIfNeeded(ctx context.Context, admin *MatrixAdminClient, mmUser *model.User) bool {
+	serverName := s.Connector.Bridge.Matrix.ServerName()
+	mxid := GenerateMatrixUserID(mmUser, serverName)
+	
+	// Check if user already exists
+	exists, err := admin.UserExists(ctx, mxid)
+	if err != nil {
+		fmt.Printf("WARN: Failed to check if Matrix user exists for %s: %v\\n", mmUser.Username, err)
+		return false
+	}
+	
+	if exists {
+		// User exists, just update display name if needed
+		displayName := mmUser.GetDisplayName(model.ShowFullName)
+		if displayName == "" {
+			displayName = mmUser.Username
+		}
+		_ = admin.UpdateUserDisplayName(ctx, mxid, displayName)
+		return false
+	}
+	
+	// Create the user
+	displayName := mmUser.GetDisplayName(model.ShowFullName)
+	if displayName == "" {
+		displayName = mmUser.Username
+	}
+	password := GeneratePassword()
+	
+	if err := admin.CreateUser(ctx, mxid, password, displayName); err != nil {
+		fmt.Printf("WARN: Failed to create Matrix user for %s: %v\\n", mmUser.Username, err)
+		return false
+	}
+	
+	fmt.Printf("INFO: Created Matrix user %s for Mattermost user %s\\n", mxid, mmUser.Username)
+	return true
 }
 
 // SyncHistoricalMessages syncs message history for a channel
