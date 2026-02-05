@@ -1,2 +1,39 @@
+# Mattermost connection settings
 server_url: "http://mattermost:8065"
 admin_token: ""
+
+# Bridge mode: "puppet" or "mirror"
+# - puppet: Traditional single-user bridging (like other Beeper bridges)
+# - mirror: Full server mirroring with admin API access
+mode: "puppet"
+
+# Mirror mode settings (only used when mode: "mirror")
+mirror:
+  # Sync all teams automatically
+  sync_all_teams: true
+  
+  # Sync all channels in each team
+  sync_all_channels: true
+  
+  # Sync all users to Matrix
+  sync_all_users: true
+  
+  # Auto-invite Matrix users to portal rooms
+  auto_invite_users: true
+  
+  # Create Matrix accounts for Mattermost users
+  create_matrix_accounts: true
+  
+  # Sync historical messages on startup
+  sync_history: true
+  
+  # Maximum messages to sync per channel (0 = all)
+  history_limit: 1000
+
+# Synapse admin settings (for mirror mode with user creation)
+synapse_admin:
+  # Synapse admin API URL  
+  url: ""
+  
+  # Admin access token (must be server admin)
+  token: ""

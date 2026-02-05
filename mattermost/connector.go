@@ -19,9 +19,39 @@ import (
 //go:embed example-config.yaml
 var ExampleConfig string
 
+// BridgeMode defines the operating mode of the bridge
+type BridgeMode string
+
+const (
+	// ModePuppet is the traditional single-user bridging mode (like other Beeper bridges)
+	ModePuppet BridgeMode = "puppet"
+	// ModeMirror is full server mirroring with admin API access
+	ModeMirror BridgeMode = "mirror"
+)
+
+// MirrorConfig contains settings for mirror mode
+type MirrorConfig struct {
+	SyncAllTeams         bool `yaml:"sync_all_teams"`
+	SyncAllChannels      bool `yaml:"sync_all_channels"`
+	SyncAllUsers         bool `yaml:"sync_all_users"`
+	AutoInviteUsers      bool `yaml:"auto_invite_users"`
+	CreateMatrixAccounts bool `yaml:"create_matrix_accounts"`
+	SyncHistory          bool `yaml:"sync_history"`
+	HistoryLimit         int  `yaml:"history_limit"`
+}
+
+// SynapseAdminConfig contains Synapse admin API settings
+type SynapseAdminConfig struct {
+	URL   string `yaml:"url"`
+	Token string `yaml:"token"`
+}
+
 type NetworkConfig struct {
-	ServerURL  string `yaml:"server_url"`
-	AdminToken string `yaml:"admin_token"`
+	ServerURL    string             `yaml:"server_url"`
+	AdminToken   string             `yaml:"admin_token"`
+	Mode         BridgeMode         `yaml:"mode"`
+	Mirror       MirrorConfig       `yaml:"mirror"`
+	SynapseAdmin SynapseAdminConfig `yaml:"synapse_admin"`
 }
 
 type MattermostConnector struct {
@@ -49,6 +79,25 @@ func (m *MattermostConnector) GetConfig() (string, any, configupgrade.Upgrader) 
 func (m *MattermostConnector) UpgradeConfig(helper configupgrade.Helper) {
 	helper.Copy(configupgrade.Str, "server_url")
 	helper.Copy(configupgrade.Str, "admin_token")
+	helper.Copy(configupgrade.Str, "mode")
+	
+	// Mirror mode settings
+	helper.Copy(configupgrade.Bool, "mirror", "sync_all_teams")
+	helper.Copy(configupgrade.Bool, "mirror", "sync_all_channels")
+	helper.Copy(configupgrade.Bool, "mirror", "sync_all_users")
+	helper.Copy(configupgrade.Bool, "mirror", "auto_invite_users")
+	helper.Copy(configupgrade.Bool, "mirror", "create_matrix_accounts")
+	helper.Copy(configupgrade.Bool, "mirror", "sync_history")
+	helper.Copy(configupgrade.Int, "mirror", "history_limit")
+	
+	// Synapse admin settings
+	helper.Copy(configupgrade.Str, "synapse_admin", "url")
+	helper.Copy(configupgrade.Str, "synapse_admin", "token")
+}
+
+// IsMirrorMode returns true if the bridge is running in mirror mode
+func (m *MattermostConnector) IsMirrorMode() bool {
+	return m.Config != nil && m.Config.Mode == ModeMirror
 }
 
 
@@ -82,6 +131,13 @@ func (m *MattermostConnector) Init(br *bridgev2.Bridge) {
 
 
 func (m *MattermostConnector) Start(ctx context.Context) error {
+	// Log bridge mode
+	mode := m.Config.Mode
+	if mode == "" {
+		mode = ModePuppet // Default to puppet mode
+	}
+	fmt.Printf("INFO: Starting Mattermost bridge in %s mode\n", mode)
+	
 	m.Client = NewClient(m.Config.ServerURL, m.Config.AdminToken)
 	err := m.Client.Connect(ctx)
 	if err != nil {
@@ -89,6 +145,12 @@ func (m *MattermostConnector) Start(ctx context.Context) error {
 	}
 
 	m.StartWebSocket()
+	
+	// Mirror mode: start server sync engine
+	if m.IsMirrorMode() {
+		fmt.Printf("INFO: Mirror mode enabled - will sync all teams/channels/users\n")
+		go m.startMirrorSync(ctx)
+	}
 	
 	// Auto-login sysadmin if no users are logged in
 	go func() {
