@@ -30,6 +30,7 @@ func (m *MattermostConnector) StartWebSocket() {
 				if !ok {
 					return
 				}
+				fmt.Printf("DEBUG: Received websocket event: %s\n", event.EventType())
 				m.HandleWebSocketEvent(event)
 			case _ = <-m.WSClient.ResponseChannel:
 				// Handle responses if needed
@@ -73,7 +74,9 @@ func (m *MattermostConnector) HandleWebSocketEvent(event *model.WebSocketEvent) 
 		// that "receives" all events, or we might need to map it.
 		
 		// For now, let's assume we have a "manager" login or we find any login.
-		for _, login := range m.GetUsers() {
+		users := m.GetUsers()
+		fmt.Printf("DEBUG: Found %d users for event\n", len(users))
+		for _, login := range users {
 			m.Bridge.QueueRemoteEvent(login, evt)
 		}
 

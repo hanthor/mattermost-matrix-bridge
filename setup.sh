@@ -78,6 +78,10 @@ echo -e "${BLUE}Updating docker-compose.yaml with port assignments...${NC}"
 # Create backup
 cp docker-compose.yaml docker-compose.yaml.bak 2>/dev/null || true
 
+# Update Synapse image
+sed -i "s|image: docker.io/matrixdotorg/synapse:latest|image: docker.io/matrixdotorg/synapse:v1.115.0|g" docker-compose.yaml
+sed -i "s|image: ghcr.io/element-hq/synapse:.*|image: docker.io/matrixdotorg/synapse:v1.115.0|g" docker-compose.yaml
+
 # Update Synapse port
 sed -i "s/- \"[0-9]*:8008\"/- \"$SYNAPSE_PORT:8008\"/g" docker-compose.yaml
 sed -i "s/- [0-9]*:8008$/- $SYNAPSE_PORT:8008/g" docker-compose.yaml
@@ -95,10 +99,16 @@ sed -i "s/- [0-9]*:80$/- $ELEMENT_PORT:80/g" docker-compose.yaml
 if [ ! -f "synapse-data/homeserver.yaml" ]; then
     echo -e "${BLUE}Generating Synapse configuration...${NC}"
     mkdir -p synapse-data
-    $DOCKER_CMD run --rm -u $(id -u):$(id -g) -v $(pwd)/synapse-data:/data \
+    $DOCKER_CMD run --rm -v $(pwd)/synapse-data:/data:Z \
         -e SYNAPSE_SERVER_NAME=localhost \
         -e SYNAPSE_REPORT_STATS=no \
-        docker.io/matrixdotorg/synapse:latest generate 2>/dev/null || true
+        docker.io/matrixdotorg/synapse:v1.115.0 generate 2>/dev/null || true
+
+    # Fix permissions so host can edit
+    $DOCKER_CMD run --rm -v $(pwd)/synapse-data:/data:Z docker.io/library/alpine chmod -R 777 /data
+
+    # Patch homeserver.yaml for Postgres
+    sed -i '/database:/,/database: \/data\/homeserver.db/c\database:\n  name: psycopg2\n  allow_unsafe_locale: true\n  args:\n    user: synapse\n    password: synapsepassword\n    database: synapse\n    host: postgres\n    cp_min: 5\n    cp_max: 10' synapse-data/homeserver.yaml
     
     # Ensure server_name and report_stats are set (check file exists first)
     if [ -f "synapse-data/homeserver.yaml" ]; then
@@ -144,40 +154,12 @@ fi
 # Generate minimal config.yaml if it doesn't exist
 if [ ! -f "config.yaml" ]; then
     echo -e "${BLUE}Generating config.yaml...${NC}"
-    cat > config.yaml << 'EOF'
-# Homeserver details
-homeserver:
-    address: http://synapse:8008
-    domain: localhost
-
-# Application service host/registration related details
-appservice:
-    address: http://bridge:8080
-    hostname: 0.0.0.0
-    port: 8080
-    database:
-        type: sqlite3-fk-wal
-        uri: file:/data/mautrix-mattermost.db
-    id: mattermost
-    bot:
-        username: mattermostbot
-        displayname: Mattermost Bridge Bot
-        avatar: mxc://maunium.net/mattermost
-    as_token: "oaMzNZbT718MLatfu91l9HNANxkdwXrEkWxRolWQA"
-    hs_token: "mfg9u7SnZ0UXqhjs0JkeYBIeULG8lTM7u4Z9byXayh8"
-
-# Network-specific config
-network:
-    id: mattermost
-    display_name: Mattermost
-    avatar_url: mxc://maunium.net/mattermost
-    color: "#0072C6"
-
-# Bridge config
+cat > config.yaml << 'EOF'
+# Config options that affect the central bridge module.
 bridge:
-    command_prefix: "!mattermost"
+    # The prefix for commands. Only required in non-management rooms.
+    command_prefix: '!mattermost'
     personal_filtering_spaces: true
-    # Relay configuration
     relay:
         enabled: true
         admin_only: true
@@ -197,17 +179,58 @@ bridge:
         "localhost": user
         "@admin:localhost": admin
 
+# Database config
+database:
+    type: postgres
+    uri: postgres://mmuser:mmpassword@postgres-mm:5432/mautrix_mattermost?sslmode=disable
+    max_open_conns: 5
+    max_idle_conns: 1
+    max_conn_idle_time: null
+    max_conn_lifetime: null
+
+# Homeserver details
+homeserver:
+    address: http://synapse:8008
+    domain: localhost
+    software: standard
+    status_endpoint: null
+    message_send_checkpoint_endpoint: null
+    async_media: false
+    websocket: false
+    ping_interval_seconds: 0
+
+# Application service host/registration related details
+appservice:
+    address: http://bridge:8080
+    hostname: 0.0.0.0
+    port: 8080
+    id: mattermost
+    bot:
+        username: mattermostbot
+        displayname: Mattermost Bridge Bot
+        avatar: mxc://maunium.net/mattermost
+    ephemeral_events: true
+    async_transactions: false
+    as_token: "oaMzNZbT718MLatfu91l9HNANxkdwXrEkWxRolWQA"
+    hs_token: "mfg9u7SnZ0UXqhjs0JkeYBIeULG8lTM7u4Z9byXayh8"
+    username_template: "mattermost_{{.}}"
+
 # Matrix config
 matrix:
+    message_status_events: false
+    delivery_receipts: false
+    message_error_notices: true
+    sync_direct_chat_list: false
     federate_rooms: true
 
 # Encryption config
 encryption:
-    allow: true
-    default: true
+    allow: false
+    default: false
     require: false
     appservice: false
     allow_key_sharing: true
+    pickle_key: "generate"
     delete_keys:
         delete_outbound_on_ack: false
         dont_store_outbound: false
@@ -227,8 +250,8 @@ encryption:
         messages: 100
         disable_device_change_key_rotation: false
 
-# Mattermost-specific config
-mattermost:
+# Connector config
+network:
     server_url: "http://mattermost:8065"
     admin_token: ""
 
@@ -247,9 +270,22 @@ echo -e "${BLUE}Starting Docker services...${NC}"
 $COMPOSE_CMD up -d
 
 echo ""
-echo -e "${GREEN}=== Services Starting ===${NC}"
-echo -e "Waiting for services to be healthy..."
+echo -e "\n=== Services Starting ==="
+echo "Waiting for services to be healthy..."
+# Initial wait for DBs to start
 sleep 15
+until $DOCKER_CMD exec mautrix-mattermost_mattermost_1 mmctl system ping --local > /dev/null 2>&1; do
+    echo -n "m"
+    sleep 2
+done
+echo -e "\n✓ Mattermost is ready"
+
+# Synapse usually has wget
+until $DOCKER_CMD exec mautrix-mattermost_synapse_1 curl -s http://localhost:8008/_matrix/client/versions > /dev/null 2>&1; do
+    echo -n "s"
+    sleep 2
+done
+echo -e "\n✓ Synapse is ready"
 
 # Check service status
 echo ""

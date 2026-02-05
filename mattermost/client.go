@@ -3,6 +3,7 @@ package mattermost
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/mattermost/mattermost/server/public/model"
 )
@@ -27,10 +28,15 @@ func (c *Client) Connect(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to connect to Mattermost: %w", err)
 	}
-	if user.Roles != "system_admin" {
-		// We might not strictly need system_admin if we have enough permissions,
-		// but for puppeting it's usually required.
-		fmt.Printf("Warning: Admin token user %s is not a system admin\n", user.Username)
+	isSystemAdmin := false
+	for _, role := range strings.Fields(user.Roles) {
+		if role == "system_admin" {
+			isSystemAdmin = true
+			break
+		}
+	}
+	if !isSystemAdmin {
+		fmt.Printf("Warning: Admin token user %s is not a system admin (roles: %s)\n", user.Username, user.Roles)
 	}
 	return nil
 }

@@ -12,7 +12,12 @@ import (
 
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/hanthor/mautrix-mattermost/mattermost/msgconv"
+	_ "embed"
+	"time"
 )
+
+//go:embed example-config.yaml
+var ExampleConfig string
 
 type NetworkConfig struct {
 	ServerURL  string `yaml:"server_url"`
@@ -38,7 +43,12 @@ func (m *MattermostConnector) GetDBMetaTypes() database.MetaTypes {
 }
 
 func (m *MattermostConnector) GetConfig() (string, any, configupgrade.Upgrader) {
-	return "mattermost", &NetworkConfig{}, nil
+	return ExampleConfig, &m.Config, configupgrade.SimpleUpgrader(m.UpgradeConfig)
+}
+
+func (m *MattermostConnector) UpgradeConfig(helper configupgrade.Helper) {
+	helper.Copy(configupgrade.Str, "server_url")
+	helper.Copy(configupgrade.Str, "admin_token")
 }
 
 
@@ -79,6 +89,53 @@ func (m *MattermostConnector) Start(ctx context.Context) error {
 	}
 
 	m.StartWebSocket()
+	
+	// Auto-login sysadmin if no users are logged in
+	go func() {
+		time.Sleep(2 * time.Second)
+		m.usersLock.RLock()
+		userCount := len(m.users)
+		m.usersLock.RUnlock()
+		
+		if userCount == 0 && m.Config.AdminToken != "" {
+			fmt.Printf("DEBUG: Auto-provisioning sysadmin login\n")
+			me, _, err := m.Client.GetMe(ctx, "")
+			if err == nil {
+				// Get or create the user via the bridge's API
+				user, err := m.Bridge.GetUserByMXID(ctx, "@admin:localhost")
+				if err != nil {
+					fmt.Printf("DEBUG: Failed to get user: %v\n", err)
+					return
+				}
+				
+				// Create login via bridge's user management
+				loginID := networkid.UserLoginID(me.Id)
+				login, err := user.NewLogin(ctx, &database.UserLogin{
+					ID:         loginID,
+					BridgeID:   m.Bridge.ID,
+					UserMXID:   user.MXID,
+					RemoteName: me.Username,
+					Metadata: map[string]any{
+						"token": m.Config.AdminToken,
+					},
+				}, nil)
+				if err != nil {
+					fmt.Printf("DEBUG: Failed to create login: %v\n", err)
+					return
+				}
+				
+				err = m.LoadUserLogin(ctx, login)
+				if err != nil {
+					fmt.Printf("DEBUG: Failed to load auto-login: %v\n", err)
+				} else {
+					fmt.Printf("DEBUG: Successfully auto-provisioned sysadmin login\n")
+				}
+			} else {
+				fmt.Printf("DEBUG: Failed to get sysadmin info for auto-login: %v\n", err)
+			}
+		}
+	}()
+	
 	return nil
 }
 

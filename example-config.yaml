@@ -1,5 +1,7 @@
 # Network-specific config options
-network: mattermost
+network:
+    server_url: ""
+    admin_token: ""
 
 # Config options that affect the central bridge module.
 bridge:

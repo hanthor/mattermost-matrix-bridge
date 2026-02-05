@@ -1,18 +1,18 @@
 #!/bin/bash
 set -e
 
-# Load URLs from .env.urls
-if [ -f .env.urls ]; then
-    source .env.urls
-else
-    echo "Error: .env.urls not found. Run ./setup.sh first."
-    exit 1
+# Configuration
+SYNAPSE_URL=${SYNAPSE_URL:-"http://localhost:40008"}
+MM_URL=${MM_URL:-"http://localhost:40065"}
+# Note: MM_ADMIN_TOKEN is loaded from config.yaml below if not set
+if [ -z "$MM_ADMIN_TOKEN" ]; then
+    if [ -f config.yaml ]; then
+        MM_ADMIN_TOKEN=$(grep -w "admin_token:" config.yaml | head -n1 | cut -d'"' -f2)
+    fi
 fi
 
-# Load Admin Token from config.yaml
-MM_ADMIN_TOKEN=$(grep "admin_token:" config.yaml | cut -d'"' -f2)
 if [ -z "$MM_ADMIN_TOKEN" ]; then
-    echo "Error: Could not find admin_token in config.yaml"
+    echo "Error: MM_ADMIN_TOKEN not set and could not find admin_token in config.yaml"
     exit 1
 fi
 
@@ -41,8 +41,8 @@ REGISTER_RESP=$(curl -s -X POST "$SYNAPSE_URL/_matrix/client/r0/register" \
         \"auth\": { \"type\": \"m.login.dummy\" }
     }")
 
-ACCESS_TOKEN=$(echo $REGISTER_RESP | grep -oP '"access_token":"\K[^"]+')
-USER_ID=$(echo $REGISTER_RESP | grep -oP '"user_id":"\K[^"]+')
+ACCESS_TOKEN=$(echo $REGISTER_RESP | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+USER_ID=$(echo $REGISTER_RESP | sed -n 's/.*"user_id":"\([^"]*\)".*/\1/p')
 
 if [ -z "$ACCESS_TOKEN" ]; then
     echo "Error registering Matrix user: $REGISTER_RESP"
@@ -54,27 +54,30 @@ echo "✓ Created user $USER_ID"
 echo -e "${BLUE}[2/5] Getting Mattermost Channel ID...${NC}"
 # We know the team is 'test-team' and channel is 'test-channel' from provision_mm.sh
 # Need to fetch Team ID then Channel ID
-MM_API="$MATTERMOST_URL/api/v4"
+MM_API="$MM_URL/api/v4"
 MM_AUTH="Authorization: Bearer $MM_ADMIN_TOKEN"
 
-TEAM_ID=$(curl -s -H "$MM_AUTH" "$MM_API/teams/name/test-team" | grep -oP '"id":"\K[^"]+')
-CHANNEL_ID=$(curl -s -H "$MM_AUTH" "$MM_API/teams/$TEAM_ID/channels/name/test-channel" | grep -oP '"id":"\K[^"]+')
+TEAM_ID=$(curl -s -H "$MM_AUTH" "$MM_API/teams/name/test-team" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+CHANNEL_ID=$(curl -s -H "$MM_AUTH" "$MM_API/teams/$TEAM_ID/channels/name/test-channel" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
 
 echo "✓ Found Channel ID: $CHANNEL_ID"
 
 # 3. Matrix -> Mattermost Test
 echo -e "${BLUE}[3/5] Testing Matrix -> Mattermost...${NC}"
-ROOM_ALIAS="#test-team_test-channel:localhost"
+ROOM_ALIAS="#mattermost_test-team_test-channel:localhost"
 MSG_BODY="Hello from Matrix ($MATRIX_USER)"
 
 # Join Room
 echo "Joining $ROOM_ALIAS..."
-curl -s -X POST "$SYNAPSE_URL/_matrix/client/r0/join/$ROOM_ALIAS" \
-    -H "Authorization: Bearer $ACCESS_TOKEN" > /dev/null
+# Encode # as %23 for URL
+ENCODED_ALIAS=$(echo "$ROOM_ALIAS" | sed 's/#/%23/')
+JOIN_RESP=$(curl -s -X POST "$SYNAPSE_URL/_matrix/client/r0/join/$ENCODED_ALIAS" \
+    -H "Authorization: Bearer $ACCESS_TOKEN")
+echo "Join Response: $JOIN_RESP"
 
 # Send Message
 echo "Sending message..."
-curl -s -X POST "$SYNAPSE_URL/_matrix/client/r0/rooms/$ROOM_ALIAS/send/m.room.message" \
+curl -s -X POST "$SYNAPSE_URL/_matrix/client/r0/rooms/$ENCODED_ALIAS/send/m.room.message" \
     -H "Authorization: Bearer $ACCESS_TOKEN" \
     -H "Content-Type: application/json" \
     -d "{

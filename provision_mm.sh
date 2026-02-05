@@ -24,21 +24,42 @@ NC='\033[0m'
 
 echo -e "${GREEN}=== Mattermost-Matrix Bridge Provisioning ===${NC}"
 
-# 1. Wait for Mattermost (using mmctl instead of curl)
-echo -e "${GREEN}[1/6] Waiting for Mattermost...${NC}"
-until $DOCKER_CMD exec mautrix-mattermost_mattermost_1 mmctl version --local > /dev/null 2>&1; do
-  sleep 3
+# 1. Wait for Mattermost and Synapse
+echo -e "${BLUE}[1/6] Waiting for services...${NC}"
+until $DOCKER_CMD exec mautrix-mattermost_mattermost_1 mmctl system ping --local > /dev/null 2>&1; do
+    echo -n "m"
+    sleep 2
 done
-echo "✓ Mattermost is ready"
+until $DOCKER_CMD exec mautrix-mattermost_synapse_1 curl -s http://localhost:8008/_matrix/client/versions > /dev/null 2>&1; do
+    echo -n "s"
+    sleep 2
+done
+echo -e "\n✓ Services are ready"
 
 # 2. Create Admin User
 echo -e "${GREEN}[2/6] Setting up admin user...${NC}"
-$DOCKER_CMD exec mautrix-mattermost_mattermost_1 mmctl user create \
-  --email admin@example.com \
-  --username sysadmin \
-  --password 'Sys@dmin123' \
-  --system-admin \
-  --local 2>&1 | grep -q "Created\|already exists" && echo "✓ Admin user ready" || echo "✓ User exists"
+# Use a retry loop for user creation in case Mattermost is still starting up internally
+MAX_RETRIES=5
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if $DOCKER_CMD exec mautrix-mattermost_mattermost_1 mmctl user create \
+      --email admin@example.com \
+      --username sysadmin \
+      --password 'Sys@dmin123' \
+      --system-admin \
+      --local 2>&1 | grep -q "Created\|already exists"; then
+        echo "✓ Admin user ready"
+        break
+    fi
+    echo "Waiting for user creation capability..."
+    sleep 5
+    RETRY_COUNT=$((RETRY_COUNT+1))
+done
+
+if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    echo -e "${YELLOW}⚠ Failed to create admin user after $MAX_RETRIES attempts${NC}"
+    exit 1
+fi
 
 # 3. Create Team and Channel
 echo -e "${GREEN}[3/6] Creating team and channel...${NC}"
@@ -78,11 +99,13 @@ fi
 echo "✓ Token ready: ${TOKEN:0:10}..."
 
 # 5. Update Bridge Config
-echo -e "${GREEN}[5/6] Updating bridge config...${NC}"
-if grep -q 'admin_token: ""' config.yaml; then
-    sed -i "s|admin_token: \"\"|admin_token: \"$TOKEN\"|g" config.yaml
+echo -e "${BLUE}[5/6] Updating bridge config...${NC}"
+# Use a more robust sed that works even if indented or in different blocks
+if grep -q "admin_token:" config.yaml; then
+    sed -i "s|admin_token:.*|admin_token: \"$TOKEN\"|g" config.yaml
 else
-    sed -i "s|admin_token: .*|admin_token: \"$TOKEN\"|g" config.yaml
+    # Fallback: append if not found (should not happen with fixed Go code)
+    echo "admin_token: \"$TOKEN\"" >> config.yaml
 fi
 echo "✓ Config updated"
 

@@ -6,22 +6,22 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: synapse
-      POSTGRES_PASSWORD: synapse_password
+      POSTGRES_PASSWORD: synapsepassword
       POSTGRES_DB: synapse
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data:Z
     networks:
       - bridge_net
 
   synapse:
-    image: docker.io/matrixdotorg/synapse:latest
+    image: docker.io/matrixdotorg/synapse:v1.115.0
     restart: unless-stopped
     environment:
       SYNAPSE_SERVER_NAME: localhost
       SYNAPSE_REPORT_STATS: "no"
     volumes:
-      - ./synapse-data:/data
-      - ./registration.yaml:/data/registration.yaml
+      - ./synapse-data:/data:Z
+      - ./registration.yaml:/data/registration.yaml:Z
     ports:
       - 40008:8008
     depends_on:
@@ -35,7 +35,7 @@ services:
     ports:
       - 40080:80
     volumes:
-      - ./element-config.json:/app/config.json
+      - ./element-config.json:/app/config.json:Z
     networks:
       - bridge_net
 
@@ -63,7 +63,9 @@ services:
       POSTGRES_PASSWORD: mmpassword
       POSTGRES_DB: mattermost
     volumes:
-      - postgres_mm_data:/var/lib/postgresql/data
+      - postgres_mm_data:/var/lib/postgresql/data:Z
+      - ./:/data:Z
+    working_dir: /data
     networks:
       - bridge_net
 
@@ -73,12 +75,10 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     volumes:
-      - ./config.yaml:/data/config.yaml
-      - ./registration.yaml:/data/registration.yaml
+      - ./:/data:Z
     depends_on:
       - synapse
       - mattermost
-    # Changing to bridge_net to be cleaner, but config needs to point to 'synapse' and 'mattermost' hostnames
     networks:
       - bridge_net
 
