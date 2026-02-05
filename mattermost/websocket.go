@@ -66,6 +66,7 @@ func (m *MattermostConnector) HandleWebSocketEvent(event *model.WebSocketEvent) 
 			PostID:  post.Id,
 			Content: post.Message,
 			FileIds: post.FileIds,
+			RootID:  post.RootId, // Thread root for replies
 		}
 
 

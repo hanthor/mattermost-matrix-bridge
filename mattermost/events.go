@@ -45,6 +45,7 @@ type MattermostMessageEvent struct {
 	PostID  string
 	Content string
 	FileIds []string
+	RootID  string // Thread root post ID (empty if not a reply)
 }
 
 func (e *MattermostMessageEvent) GetType() bridgev2.RemoteEventType {
@@ -95,11 +96,12 @@ func (e *MattermostMessageEvent) ConvertMessage(ctx context.Context, portal *bri
 	
 	// Re-construct the Post object since we only have fields in struct
 	post := &model.Post{
-		Id: e.PostID,
+		Id:        e.PostID,
 		ChannelId: e.ChannelID,
-		UserId: e.UserID,
-		Message: e.Content,
-		FileIds: e.FileIds,
+		UserId:    e.UserID,
+		Message:   e.Content,
+		FileIds:   e.FileIds,
+		RootId:    e.RootID, // Thread root for replies
 	}
 	
 	msg := e.Connector.MsgConv.ToMatrix(ctx, portal, intent, source, post)

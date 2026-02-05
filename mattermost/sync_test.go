@@ -355,3 +355,93 @@ func TestMattermostEvent_GetSender(t *testing.T) {
 	
 	assert.Equal(t, networkid.UserID("user456"), sender.Sender)
 }
+
+// Thread Support Tests
+
+func TestMattermostMessageEvent_WithThreadRoot(t *testing.T) {
+	event := MattermostMessageEvent{
+		MattermostEvent: MattermostEvent{
+			ChannelID: "channel1",
+			UserID:    "user1",
+		},
+		PostID:  "post123",
+		Content: "This is a reply",
+		RootID:  "root_post_id",
+	}
+	
+	assert.Equal(t, "root_post_id", event.RootID)
+	assert.Equal(t, "post123", event.PostID)
+}
+
+func TestMattermostMessageEvent_WithoutThreadRoot(t *testing.T) {
+	event := MattermostMessageEvent{
+		MattermostEvent: MattermostEvent{
+			ChannelID: "channel1",
+			UserID:    "user1",
+		},
+		PostID:  "post123",
+		Content: "This is a root post",
+		RootID:  "", // Empty = root post, not a reply
+	}
+	
+	assert.Empty(t, event.RootID)
+	assert.Equal(t, "post123", event.PostID)
+}
+
+func TestMattermostMessageEvent_GetID(t *testing.T) {
+	event := &MattermostMessageEvent{
+		PostID: "post_abc123",
+	}
+	
+	assert.Equal(t, networkid.MessageID("post_abc123"), event.GetID())
+}
+
+func TestMattermostMessageEvent_GetType(t *testing.T) {
+	event := &MattermostMessageEvent{}
+	
+	assert.Equal(t, bridgev2.RemoteEventMessage, event.GetType())
+}
+
+func TestMattermostMessageEvent_ShouldCreatePortal(t *testing.T) {
+	event := &MattermostMessageEvent{}
+	
+	assert.True(t, event.ShouldCreatePortal())
+}
+
+func TestMattermostEditEvent_GetType(t *testing.T) {
+	event := &MattermostEditEvent{}
+	
+	assert.Equal(t, bridgev2.RemoteEventEdit, event.GetType())
+}
+
+func TestMattermostEditEvent_GetTargetMessage(t *testing.T) {
+	event := &MattermostEditEvent{
+		MattermostMessageEvent: MattermostMessageEvent{
+			PostID: "post_to_edit",
+		},
+	}
+	
+	assert.Equal(t, networkid.MessageID("post_to_edit"), event.GetTargetMessage())
+}
+
+func TestMattermostRemoveEvent_GetType(t *testing.T) {
+	event := &MattermostRemoveEvent{}
+	
+	assert.Equal(t, bridgev2.RemoteEventMessageRemove, event.GetType())
+}
+
+func TestMattermostRemoveEvent_GetTargetMessage(t *testing.T) {
+	event := &MattermostRemoveEvent{
+		PostID: "post_to_delete",
+	}
+	
+	assert.Equal(t, networkid.MessageID("post_to_delete"), event.GetTargetMessage())
+}
+
+func TestMattermostRemoveEvent_GetID(t *testing.T) {
+	event := &MattermostRemoveEvent{
+		PostID: "post_deleted",
+	}
+	
+	assert.Equal(t, networkid.MessageID("post_deleted"), event.GetID())
+}

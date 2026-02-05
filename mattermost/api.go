@@ -164,6 +164,11 @@ func (m *MattermostAPI) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	// post.Message is already set by ToMattermost
 	// post.FileIds is already set by ToMattermost
 
+	// Handle thread replies: if there's a thread root, set RootId
+	if msg.ThreadRoot != nil {
+		post.RootId = string(msg.ThreadRoot.ID)
+	}
+
 	createdPost, _, err := m.Client.CreatePost(ctx, post)
 	if err != nil {
 		return nil, err
