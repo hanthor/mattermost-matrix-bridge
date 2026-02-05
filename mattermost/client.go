@@ -90,3 +90,38 @@ func (c *Client) GetUserByUsername(ctx context.Context, username string) (*model
 	user, _, err := c.Client4.GetUserByUsername(ctx, username, "")
 	return user, err
 }
+
+// GetFileInfo retrieves metadata about a file from Mattermost
+func (c *Client) GetFileInfo(ctx context.Context, fileID string) (*model.FileInfo, error) {
+	info, _, err := c.Client4.GetFileInfo(ctx, fileID)
+	return info, err
+}
+
+// GetFileWithInfo retrieves both file content and metadata
+func (c *Client) GetFileWithInfo(ctx context.Context, fileID string) ([]byte, *model.FileInfo, error) {
+	// Get file info first
+	info, _, err := c.Client4.GetFileInfo(ctx, fileID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get file info: %w", err)
+	}
+	
+	// Get file content
+	data, _, err := c.Client4.GetFile(ctx, fileID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get file: %w", err)
+	}
+	
+	return data, info, nil
+}
+
+// GetFileThumbnail retrieves a thumbnail for an image file
+func (c *Client) GetFileThumbnail(ctx context.Context, fileID string) ([]byte, error) {
+	data, _, err := c.Client4.GetFileThumbnail(ctx, fileID)
+	return data, err
+}
+
+// GetFilePreview retrieves a preview for a file
+func (c *Client) GetFilePreview(ctx context.Context, fileID string) ([]byte, error) {
+	data, _, err := c.Client4.GetFilePreview(ctx, fileID)
+	return data, err
+}

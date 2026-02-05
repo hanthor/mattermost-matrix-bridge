@@ -155,3 +155,33 @@ func (e *MattermostRemoveEvent) GetID() networkid.MessageID {
 	return networkid.MessageID(e.PostID)
 }
 
+// MattermostReactionEvent represents a reaction added or removed from a post
+type MattermostReactionEvent struct {
+	MattermostEvent
+	PostID    string
+	EmojiName string
+	Added     bool // true = reaction added, false = reaction removed
+}
+
+func (e *MattermostReactionEvent) GetType() bridgev2.RemoteEventType {
+	if e.Added {
+		return bridgev2.RemoteEventReaction
+	}
+	return bridgev2.RemoteEventReactionRemove
+}
+
+func (e *MattermostReactionEvent) GetTargetMessage() networkid.MessageID {
+	return networkid.MessageID(e.PostID)
+}
+
+// GetReactionEmoji returns the emoji for bridgev2.RemoteReaction interface
+func (e *MattermostReactionEvent) GetReactionEmoji() (string, networkid.EmojiID) {
+	// Mattermost uses emoji names like "thumbsup", convert to Unicode if possible
+	// For now, we'll use the emoji name directly; emoji conversion could be enhanced
+	return e.EmojiName, networkid.EmojiID(e.EmojiName)
+}
+
+// GetRemovedEmojiID returns the emoji ID for reaction removal
+func (e *MattermostReactionEvent) GetRemovedEmojiID() networkid.EmojiID {
+	return networkid.EmojiID(e.EmojiName)
+}

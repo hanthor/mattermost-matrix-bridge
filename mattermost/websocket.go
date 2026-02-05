@@ -138,6 +138,59 @@ func (m *MattermostConnector) HandleWebSocketEvent(event *model.WebSocketEvent) 
 			m.Bridge.QueueRemoteEvent(login, evt)
 		}
 
+	case model.WebsocketEventReactionAdded:
+		reactionStr, ok := event.GetData()["reaction"].(string)
+		if !ok {
+			return
+		}
+		var reaction model.Reaction
+		err := json.Unmarshal([]byte(reactionStr), &reaction)
+		if err != nil {
+			return
+		}
+
+		evt := &MattermostReactionEvent{
+			MattermostEvent: MattermostEvent{
+				Connector: m,
+				Timestamp: time.Unix(reaction.CreateAt/1000, (reaction.CreateAt%1000)*1000000),
+				ChannelID: reaction.ChannelId,
+				UserID:    reaction.UserId,
+			},
+			PostID:    reaction.PostId,
+			EmojiName: reaction.EmojiName,
+			Added:     true,
+		}
+
+		for _, login := range m.GetUsers() {
+			m.Bridge.QueueRemoteEvent(login, evt)
+		}
+
+	case model.WebsocketEventReactionRemoved:
+		reactionStr, ok := event.GetData()["reaction"].(string)
+		if !ok {
+			return
+		}
+		var reaction model.Reaction
+		err := json.Unmarshal([]byte(reactionStr), &reaction)
+		if err != nil {
+			return
+		}
+
+		evt := &MattermostReactionEvent{
+			MattermostEvent: MattermostEvent{
+				Connector: m,
+				Timestamp: time.Now(), // DeleteAt not always available
+				ChannelID: reaction.ChannelId,
+				UserID:    reaction.UserId,
+			},
+			PostID:    reaction.PostId,
+			EmojiName: reaction.EmojiName,
+			Added:     false,
+		}
+
+		for _, login := range m.GetUsers() {
+			m.Bridge.QueueRemoteEvent(login, evt)
+		}
 
 	}
 }

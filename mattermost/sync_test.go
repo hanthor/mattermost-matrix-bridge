@@ -445,3 +445,54 @@ func TestMattermostRemoveEvent_GetID(t *testing.T) {
 	
 	assert.Equal(t, networkid.MessageID("post_deleted"), event.GetID())
 }
+
+// Reaction Event Tests
+
+func TestMattermostReactionEvent_GetType_Added(t *testing.T) {
+	event := &MattermostReactionEvent{
+		PostID:    "post123",
+		EmojiName: "thumbsup",
+		Added:     true,
+	}
+	
+	assert.Equal(t, bridgev2.RemoteEventReaction, event.GetType())
+}
+
+func TestMattermostReactionEvent_GetType_Removed(t *testing.T) {
+	event := &MattermostReactionEvent{
+		PostID:    "post123",
+		EmojiName: "thumbsup",
+		Added:     false,
+	}
+	
+	assert.Equal(t, bridgev2.RemoteEventReactionRemove, event.GetType())
+}
+
+func TestMattermostReactionEvent_GetTargetMessage(t *testing.T) {
+	event := &MattermostReactionEvent{
+		PostID:    "post_with_reaction",
+		EmojiName: "heart",
+	}
+	
+	assert.Equal(t, networkid.MessageID("post_with_reaction"), event.GetTargetMessage())
+}
+
+func TestMattermostReactionEvent_GetReactionEmoji(t *testing.T) {
+	event := &MattermostReactionEvent{
+		PostID:    "post123",
+		EmojiName: "thumbsup",
+	}
+	
+	emoji, emojiID := event.GetReactionEmoji()
+	
+	assert.Equal(t, "thumbsup", emoji)
+	assert.Equal(t, networkid.EmojiID("thumbsup"), emojiID)
+}
+
+func TestMattermostReactionEvent_GetRemovedEmojiID(t *testing.T) {
+	event := &MattermostReactionEvent{
+		EmojiName: "smile",
+	}
+	
+	assert.Equal(t, networkid.EmojiID("smile"), event.GetRemovedEmojiID())
+}

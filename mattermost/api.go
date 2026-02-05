@@ -326,7 +326,55 @@ func (m *MattermostAPI) HandleMatrixMessageRemove(ctx context.Context, remove *b
 	return nil
 }
 
+// HandleMatrixReaction handles reaction events from Matrix, adding the reaction to the Mattermost post
+func (m *MattermostAPI) HandleMatrixReaction(ctx context.Context, reaction *bridgev2.MatrixReaction) (reactionInfo *database.Reaction, err error) {
+	if reaction.TargetMessage == nil {
+		return nil, fmt.Errorf("no target message")
+	}
+	
+	postID := string(reaction.TargetMessage.ID)
+	
+	// Get the emoji - bridgev2 provides the emoji via Content.RelatesTo.Key
+	emoji := reaction.Content.RelatesTo.Key
+	
+	// Create the reaction in Mattermost
+	mmReaction := &model.Reaction{
+		UserId:    string(m.Login.ID),
+		PostId:    postID,
+		EmojiName: emoji, // Mattermost uses emoji names like "thumbsup"
+	}
+	
+	savedReaction, _, err := m.Client.SaveReaction(ctx, mmReaction)
+	if err != nil {
+		return nil, fmt.Errorf("failed to save reaction: %w", err)
+	}
+	
+	return &database.Reaction{
+		EmojiID: networkid.EmojiID(savedReaction.EmojiName),
+		Emoji:   savedReaction.EmojiName,
+	}, nil
+}
 
-
-
+// HandleMatrixReactionRemove handles reaction removal events from Matrix
+func (m *MattermostAPI) HandleMatrixReactionRemove(ctx context.Context, reaction *bridgev2.MatrixReactionRemove) error {
+	if reaction.TargetReaction == nil {
+		return fmt.Errorf("no target reaction")
+	}
+	
+	// Get the post ID and emoji from the target reaction
+	postID := string(reaction.TargetReaction.MessageID)
+	emoji := string(reaction.TargetReaction.EmojiID)
+	
+	// Delete the reaction in Mattermost
+	_, err := m.Client.DeleteReaction(ctx, &model.Reaction{
+		UserId:    string(m.Login.ID),
+		PostId:    postID,
+		EmojiName: emoji,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete reaction: %w", err)
+	}
+	
+	return nil
+}
 
