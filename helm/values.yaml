@@ -1,0 +1,115 @@
+# Default values for mautrix-mattermost.
+# This is a YAML-formatted file.
+
+image:
+  repository: ghcr.io/hanthor/mautrix-mattermost
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: "mautrix-mattermost"
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: chart-example.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+
+resources: {}
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Persistent Volume for database (SQLite) if not using Postgres
+# For Production, use an external Postgres database!
+persistence:
+  enabled: false
+  size: 1Gi
+  accessMode: ReadWriteOnce
+
+# Configuration
+# This structure mirrors config.yaml
+config:
+  network:
+    server_url: "https://mattermost.lkofoss.club"
+    admin_token: "INSERT_MATTERMOST_ADMIN_TOKEN_HERE"
+    mode: "mirror"
+    mirror:
+      sync_all_teams: true
+      sync_all_channels: true
+      sync_all_users: true
+      auto_invite_users: true
+      create_matrix_accounts: false # FALSE for OIDC - let OIDC create them, bridge binds to them
+      sync_history: true
+      history_limit: 1000
+    synapse_admin:
+      url: "http://synapse-headless.ess-synapse:8008" # Verify this URL for your cluster
+      token: "INSERT_SYNAPSE_ADMIN_TOKEN_HERE" # Or use shared secret if possible
+
+  bridge:
+    command_prefix: "!mattermost"
+    personal_filtering_spaces: true
+    delivery_receipts: true
+    backfill:
+      enable: true
+    
+    # Double Puppeting (OIDC Integration)
+    # Enable this to allow the bridge to act as the Matrix user
+    login_shared_secret: "INSERT_LOGIN_SHARED_SECRET_HERE" # From Synapse config
+    double_puppet_allow_discovery: true
+    double_puppet_server_map:
+      lkofoss.club: https://matrix.lkofoss.club
+
+  encryption:
+    allow: true
+    default: true
+    require: false
+    appservice: true
+    
+  logging:
+    min_level: info
+    writers:
+    - type: stdout
+      format: json
+
+# Appservice Registration
+registration:
+  id: mattermost
+  url: http://mautrix-mattermost-bridge:8080
+  as_token: "INSERT_RANDOM_AS_TOKEN"
+  hs_token: "INSERT_RANDOM_HS_TOKEN"
+  sender_localpart: mattermostbot
+  namespaces:
+    users:
+      - exclusive: true
+        regex: '@mattermost_.*'
+    aliases:
+      - exclusive: true
+        regex: '#mattermost_.*'

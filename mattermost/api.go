@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"go.mau.fi/util/ptr"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
+	"maunium.net/go/mautrix/event"
 
 	"github.com/mattermost/mattermost/server/public/model"
 )
@@ -378,3 +380,130 @@ func (m *MattermostAPI) HandleMatrixReactionRemove(ctx context.Context, reaction
 	return nil
 }
 
+// FetchMessages implements BackfillingNetworkAPI to support historical message backfill
+func (m *MattermostAPI) FetchMessages(ctx context.Context, params bridgev2.FetchMessagesParams) (*bridgev2.FetchMessagesResponse, error) {
+	channelID := string(params.Portal.ID)
+	count := params.Count
+	if count <= 0 {
+		count = 50
+	}
+	
+	// Get posts for channel
+	var postList *model.PostList
+	var err error
+	
+	if params.Forward {
+		// Forward backfill: get messages after the anchor
+		if params.AnchorMessage != nil {
+			// Get posts after this message
+			postList, _, err = m.Client.GetPostsAfter(ctx, channelID, string(params.AnchorMessage.ID), 0, count, "", false, false)
+		} else {
+			// No anchor, get latest posts
+			postList, _, err = m.Client.GetPostsForChannel(ctx, channelID, 0, count, "", false, false)
+		}
+	} else {
+		// Backward backfill: get messages before the anchor
+		if params.AnchorMessage != nil {
+			postList, _, err = m.Client.GetPostsBefore(ctx, channelID, string(params.AnchorMessage.ID), 0, count, "", false, false)
+		} else {
+			// No anchor, get latest posts for initial backfill
+			postList, _, err = m.Client.GetPostsForChannel(ctx, channelID, 0, count, "", false, false)
+		}
+	}
+	
+	if err != nil {
+		return nil, fmt.Errorf("failed to get posts for backfill: %w", err)
+	}
+	
+	// Convert posts to BackfillMessages
+	// Posts need to be in chronological order (oldest first)
+	messages := make([]*bridgev2.BackfillMessage, 0, len(postList.Order))
+	
+	// postList.Order is newest first, so process in reverse
+	for i := len(postList.Order) - 1; i >= 0; i-- {
+		postID := postList.Order[i]
+		post := postList.Posts[postID]
+		
+		// Skip system messages
+		if post.Type != "" && !strings.HasPrefix(post.Type, "custom_") {
+			continue
+		}
+		
+		// For backfill, we convert text directly without file uploads
+		// Files would require intent which we don't have here, so we just create text parts
+		converted := &bridgev2.ConvertedMessage{}
+		
+		// Handle text content
+		if post.Message != "" {
+			content := &event.MessageEventContent{
+				Body:    post.Message,
+				MsgType: event.MsgText,
+			}
+			converted.Parts = append(converted.Parts, &bridgev2.ConvertedMessagePart{
+				Type:    event.EventMessage,
+				Content: content,
+			})
+		}
+		
+		// Note: File attachments in backfill would need async handling
+		// For now, we add a note about attachments
+		if len(post.FileIds) > 0 && post.Message == "" {
+			content := &event.MessageEventContent{
+				Body:    fmt.Sprintf("[%d file attachment(s)]", len(post.FileIds)),
+				MsgType: event.MsgNotice,
+			}
+			converted.Parts = append(converted.Parts, &bridgev2.ConvertedMessagePart{
+				Type:    event.EventMessage,
+				Content: content,
+			})
+		}
+		
+		if len(converted.Parts) == 0 {
+			continue
+		}
+		
+		// Build BackfillMessage
+		bfMsg := &bridgev2.BackfillMessage{
+			ConvertedMessage: converted,
+			Sender: bridgev2.EventSender{
+				Sender: networkid.UserID(post.UserId),
+			},
+			ID:        networkid.MessageID(post.Id),
+			Timestamp: time.UnixMilli(post.CreateAt),
+		}
+		
+		// Handle thread root
+		if post.RootId != "" {
+			rootID := networkid.MessageID(post.RootId)
+			bfMsg.ConvertedMessage.ThreadRoot = &rootID
+		}
+		
+		// Fetch reactions for this post
+		reactions, _, err := m.Client.GetReactions(ctx, post.Id)
+		if err == nil && len(reactions) > 0 {
+			bfMsg.Reactions = make([]*bridgev2.BackfillReaction, 0, len(reactions))
+			for _, reaction := range reactions {
+				bfMsg.Reactions = append(bfMsg.Reactions, &bridgev2.BackfillReaction{
+					Sender: bridgev2.EventSender{
+						Sender: networkid.UserID(reaction.UserId),
+					},
+					EmojiID:   networkid.EmojiID(reaction.EmojiName),
+					Emoji:     reaction.EmojiName,
+					Timestamp: time.UnixMilli(reaction.CreateAt),
+				})
+			}
+		}
+		
+		messages = append(messages, bfMsg)
+	}
+	
+	// Determine if there are more messages
+	hasMore := len(postList.Order) >= count
+	
+	return &bridgev2.FetchMessagesResponse{
+		Messages: messages,
+		HasMore:  hasMore,
+		Forward:  params.Forward,
+		MarkRead: params.Forward, // Mark read for forward backfill
+	}, nil
+}

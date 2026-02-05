@@ -60,6 +60,13 @@ func (s *SyncEngine) SyncAll(ctx context.Context) error {
 		}
 	}
 	
+	// Backfill history for all synced channels
+	if s.Connector.Config.Mirror.SyncHistory {
+		if err := s.BackfillAllChannels(ctx); err != nil {
+			fmt.Printf("WARN: Failed to backfill channels: %v\n", err)
+		}
+	}
+	
 	fmt.Printf("INFO: Full server sync complete\n")
 	return nil
 }
