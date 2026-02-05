@@ -1,6 +1,26 @@
 #!/bin/bash
 set -e
 
+# Detect container runtime
+if command -v docker &> /dev/null; then
+    DOCKER_CMD="docker"
+    COMPOSE_CMD="docker compose"
+elif command -v podman &> /dev/null; then
+    DOCKER_CMD="podman"
+    # Check for podman-compose or use podman compose
+    if command -v podman-compose &> /dev/null; then
+        COMPOSE_CMD="podman-compose"
+    else
+        COMPOSE_CMD="podman compose"
+    fi
+else
+    echo "Error: Neither docker nor podman found."
+    exit 1
+fi
+
+echo "Using container runtime: $DOCKER_CMD"
+echo "Using compose command: $COMPOSE_CMD"
+
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
@@ -36,18 +56,18 @@ find_available_port() {
 # Check and assign ports
 echo -e "${BLUE}Checking port availability...${NC}"
 
-MATTERMOST_PORT=$(find_available_port 8065)
-SYNAPSE_PORT=$(find_available_port 8008)
-ELEMENT_PORT=$(find_available_port 8080)
+MATTERMOST_PORT=$(find_available_port 40065)
+SYNAPSE_PORT=$(find_available_port 40008)
+ELEMENT_PORT=$(find_available_port 40080)
 
-if [ "$MATTERMOST_PORT" != "8065" ]; then
-    echo -e "${YELLOW}⚠ Port 8065 in use, using $MATTERMOST_PORT for Mattermost${NC}"
+if [ "$MATTERMOST_PORT" != "40065" ]; then
+    echo -e "${YELLOW}⚠ Port 40065 in use, using $MATTERMOST_PORT for Mattermost${NC}"
 fi
-if [ "$SYNAPSE_PORT" != "8008" ]; then
-    echo -e "${YELLOW}⚠ Port 8008 in use, using $SYNAPSE_PORT for Synapse${NC}"
+if [ "$SYNAPSE_PORT" != "40008" ]; then
+    echo -e "${YELLOW}⚠ Port 40008 in use, using $SYNAPSE_PORT for Synapse${NC}"
 fi
-if [ "$ELEMENT_PORT" != "8080" ]; then
-    echo -e "${YELLOW}⚠ Port 8080 in use, using $ELEMENT_PORT for Element${NC}"
+if [ "$ELEMENT_PORT" != "40080" ]; then
+    echo -e "${YELLOW}⚠ Port 40080 in use, using $ELEMENT_PORT for Element${NC}"
 fi
 
 echo "✓ Using ports: Mattermost=$MATTERMOST_PORT, Synapse=$SYNAPSE_PORT, Element=$ELEMENT_PORT"
@@ -60,23 +80,25 @@ cp docker-compose.yaml docker-compose.yaml.bak 2>/dev/null || true
 
 # Update Synapse port
 sed -i "s/- \"[0-9]*:8008\"/- \"$SYNAPSE_PORT:8008\"/g" docker-compose.yaml
-sed -i "s/- [0-9]*:8008/- $SYNAPSE_PORT:8008/g" docker-compose.yaml
+sed -i "s/- [0-9]*:8008$/- $SYNAPSE_PORT:8008/g" docker-compose.yaml
 
 # Update Mattermost port  
 sed -i "s/- \"[0-9]*:8065\"/- \"$MATTERMOST_PORT:8065\"/g" docker-compose.yaml
-sed -i "s/- [0-9]*:8065/- $MATTERMOST_PORT:8065/g" docker-compose.yaml
+sed -i "s/- [0-9]*:8065$/- $MATTERMOST_PORT:8065/g" docker-compose.yaml
 
 # Update Element port
 sed -i "s/- \"[0-9]*:80\"/- \"$ELEMENT_PORT:80\"/g" docker-compose.yaml
-sed -i "s/- [0-9]*:80/- $ELEMENT_PORT:80/g" docker-compose.yaml
+sed -i "s/- [0-9]*:80$/- $ELEMENT_PORT:80/g" docker-compose.yaml
+
 
 # Generate Synapse config if needed
 if [ ! -f "synapse-data/homeserver.yaml" ]; then
     echo -e "${BLUE}Generating Synapse configuration...${NC}"
     mkdir -p synapse-data
-    docker run --rm -u $(id -u):$(id -g) -v $(pwd)/synapse-data:/data \
-        -e SYNAPSE_SERVER_NAME=localhost -e SYNAPSE_REPORT_STATS=no \
-        matrixdotorg/synapse:latest generate 2>/dev/null || true
+    $DOCKER_CMD run --rm -u $(id -u):$(id -g) -v $(pwd)/synapse-data:/data \
+        -e SYNAPSE_SERVER_NAME=localhost \
+        -e SYNAPSE_REPORT_STATS=no \
+        docker.io/matrixdotorg/synapse:latest generate 2>/dev/null || true
     
     # Ensure server_name and report_stats are set (check file exists first)
     if [ -f "synapse-data/homeserver.yaml" ]; then
@@ -154,7 +176,56 @@ network:
 # Bridge config
 bridge:
     command_prefix: "!mattermost"
-    personal_filtering_spaces: false
+    personal_filtering_spaces: true
+    # Relay configuration
+    relay:
+        enabled: true
+        admin_only: true
+        default_relays: []
+        message_formats:
+            m.text: "<b>{{ .Sender.DisambiguatedName }}</b>: {{ .Message }}"
+            m.notice: "<b>{{ .Sender.DisambiguatedName }}</b>: {{ .Message }}"
+            m.emote: "* <b>{{ .Sender.DisambiguatedName }}</b> {{ .Message }}"
+            m.file: "<b>{{ .Sender.DisambiguatedName }}</b> sent a file{{ if .Caption }}: {{ .Caption }}{{ end }}"
+            m.image: "<b>{{ .Sender.DisambiguatedName }}</b> sent an image{{ if .Caption }}: {{ .Caption }}{{ end }}"
+            m.audio: "<b>{{ .Sender.DisambiguatedName }}</b> sent an audio file{{ if .Caption }}: {{ .Caption }}{{ end }}"
+            m.video: "<b>{{ .Sender.DisambiguatedName }}</b> sent a video{{ if .Caption }}: {{ .Caption }}{{ end }}"
+            m.location: "<b>{{ .Sender.DisambiguatedName }}</b> sent a location{{ if .Caption }}: {{ .Caption }}{{ end }}"
+        displayname_format: "{{ .DisambiguatedName }}"
+    permissions:
+        "*": relay
+        "localhost": user
+        "@admin:localhost": admin
+
+# Matrix config
+matrix:
+    federate_rooms: true
+
+# Encryption config
+encryption:
+    allow: true
+    default: true
+    require: false
+    appservice: false
+    allow_key_sharing: true
+    delete_keys:
+        delete_outbound_on_ack: false
+        dont_store_outbound: false
+        ratchet_on_decrypt: false
+        delete_fully_used_on_decrypt: false
+        delete_prev_on_new_session: false
+        delete_on_device_delete: false
+        periodically_delete_expired: false
+        delete_outdated_inbound: false
+    verification_levels:
+        receive: unverified
+        send: unverified
+        share: cross-signed-tofu
+    rotation:
+        enable_custom: false
+        milliseconds: 604800000
+        messages: 100
+        disable_device_change_key_rotation: false
 
 # Mattermost-specific config
 mattermost:
@@ -173,7 +244,7 @@ fi
 
 # Start services
 echo -e "${BLUE}Starting Docker services...${NC}"
-docker compose up -d
+$COMPOSE_CMD up -d
 
 echo ""
 echo -e "${GREEN}=== Services Starting ===${NC}"
@@ -182,7 +253,7 @@ sleep 15
 
 # Check service status
 echo ""
-docker compose ps
+$COMPOSE_CMD ps
 
 echo ""
 echo -e "${GREEN}╔════════════════════════════════════════════════════════╗${NC}"

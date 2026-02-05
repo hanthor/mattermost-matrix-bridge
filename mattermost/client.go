@@ -34,3 +34,53 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 	return nil
 }
+
+func (c *Client) GetClient() *model.Client4 {
+	return &c.Client4
+}
+
+func (c *Client) GetFile(ctx context.Context, fileID string) ([]byte, error) {
+	data, _, err := c.Client4.GetFile(ctx, fileID)
+	return data, err
+}
+
+func (c *Client) UploadFile(ctx context.Context, data []byte, channelID, filename string) (*model.FileInfo, error) {
+	resp, _, err := c.Client4.UploadFile(ctx, data, channelID, filename)
+	if err != nil {
+		return nil, err
+	}
+	if len(resp.FileInfos) > 0 {
+		return resp.FileInfos[0], nil
+	}
+	return nil, fmt.Errorf("no file info returned")
+}
+func (c *Client) GetTeam(ctx context.Context, teamID string) (*model.Team, error) {
+	team, _, err := c.Client4.GetTeam(ctx, teamID, "")
+	return team, err
+}
+
+func (c *Client) CreateDirectChannel(ctx context.Context, otherUserID string) (*model.Channel, error) {
+	// The first argument is the "other" user ID. The client's own ID is inferred by the server or we might need to pass it?
+	// Client4.CreateDirectChannel takes (userId1, userId2).
+	// We need the current user's ID. 
+	// The wrapper `Client` doesn't strictly store its own ID, but `Connect` fetches "Me".
+	// Maybe we should store "Me" in `Client`.
+	// Or we just pass both IDs.
+	// But `CreateDirectChannel` in `api.go` will be called on a logged-in user's API.
+	return nil, fmt.Errorf("use CreateDirectChannelWithBoth instead")
+}
+
+func (c *Client) CreateDirectChannelWithBoth(ctx context.Context, userID1, userID2 string) (*model.Channel, error) {
+	ch, _, err := c.Client4.CreateDirectChannel(ctx, userID1, userID2)
+	return ch, err
+}
+
+func (c *Client) GetUserByEmail(ctx context.Context, email string) (*model.User, error) {
+	user, _, err := c.Client4.GetUserByEmail(ctx, email, "")
+	return user, err
+}
+
+func (c *Client) GetUserByUsername(ctx context.Context, username string) (*model.User, error) {
+	user, _, err := c.Client4.GetUserByUsername(ctx, username, "")
+	return user, err
+}

@@ -4,11 +4,11 @@ import (
 	"context"
 	"time"
 
+	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/rs/zerolog"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
-	"maunium.net/go/mautrix/event"
 )
 
 
@@ -44,6 +44,7 @@ type MattermostMessageEvent struct {
 	MattermostEvent
 	PostID  string
 	Content string
+	FileIds []string
 }
 
 func (e *MattermostMessageEvent) GetType() bridgev2.RemoteEventType {
@@ -55,17 +56,54 @@ func (e *MattermostMessageEvent) GetID() networkid.MessageID {
 }
 
 func (e *MattermostMessageEvent) ConvertMessage(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI) (*bridgev2.ConvertedMessage, error) {
-	return &bridgev2.ConvertedMessage{
-		Parts: []*bridgev2.ConvertedMessagePart{
-			{
-				Type: event.EventMessage,
-				Content: &event.MessageEventContent{
-					MsgType: event.MsgText,
-					Body:    e.Content,
-				},
-			},
-		},
-	}, nil
+	// We need source user login for msgconv to download files/use client
+	// bridgev2 passes intent, but we need UserLogin to access Mattermost Client if we want to download files.
+	// Wait, ToMatrix needs `source *bridgev2.UserLogin`.
+	// We might need to find the specific user login or use a default one.
+	// Typically `e.Connector` has access to users.
+	// But `MattermostEvent` doesn't have the Source UserLogin directly attached, only UserID.
+	
+	// Quick fix: Find the UserLogin for this event's UserID if possible, or use any valid client.
+	// However, downloading files usually requires just *any* valid token if public/channel access is allowed.
+	// But if it's a DM, we need the user's token.
+	
+	var source *bridgev2.UserLogin
+	// We can try to look it up from Connector.users
+	// e.UserID is the Mattermost User ID.
+	// `connector.go` stores users by UserLoginID, which we set to UserID in `login.go`.
+	
+	e.Connector.usersLock.RLock()
+	source = e.Connector.users[networkid.UserLoginID(e.UserID)]
+	e.Connector.usersLock.RUnlock()
+	
+	if source == nil {
+		// Fallback: use any connected user (like the bridge bot/sysadmin if configured as a login)
+		// Or creating a temporary "bot" client if we have a system admin token in Config?
+		// MattermostConnector has `m.Client` which is the system client (admin token).
+		// We can wrap it in a pseudo-UserLogin or just modify `ToMatrix` signature?
+		// `ToMatrix` expects `*bridgev2.UserLogin` because it casts `Client` to `MattermostClientProvider`.
+		
+		// Let's rely on standard logic: if we don't have the user login, we might not be able to bridge perfectly if auth is strict.
+		// BUT, `m.Connector.Client` is a `*Client` which matches `MattermostClientProvider`.
+		// So we can mock a UserLogin or modify `ToMatrix` to accept `MattermostClientProvider`.
+		
+		// For now, let's just cheat and make a dummy UserLogin wrapping existing m.Connector.Client
+		source = &bridgev2.UserLogin{
+			Client: &MattermostAPI{Connector: e.Connector, Client: e.Connector.Client},
+		}
+	}
+	
+	// Re-construct the Post object since we only have fields in struct
+	post := &model.Post{
+		Id: e.PostID,
+		ChannelId: e.ChannelID,
+		UserId: e.UserID,
+		Message: e.Content,
+		FileIds: e.FileIds,
+	}
+	
+	msg := e.Connector.MsgConv.ToMatrix(ctx, portal, intent, source, post)
+	return msg, nil
 }
 
 func (e *MattermostMessageEvent) ShouldCreatePortal() bool {

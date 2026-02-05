@@ -14,7 +14,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 	
-	"github.com/mattermost/mautrix-mattermost/mattermost"
+	"github.com/hanthor/mautrix-mattermost/mattermost"
 	"github.com/mattermost/mattermost/server/public/model"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/rs/zerolog"

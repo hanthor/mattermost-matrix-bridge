@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mattermost/mattermost-plugin-matrix-bridge/server/matrix"
+	"github.com/hanthor/mautrix-mattermost/legacy-plugin/server/matrix"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -44,7 +44,7 @@ func StartMatrixContainer(t *testing.T, config MatrixTestConfig) *Container {
 
 	// Create container with Synapse using bridge networking with dynamic port assignment
 	req := testcontainers.ContainerRequest{
-		Image: "matrixdotorg/synapse:v1.119.0",
+		Image: "ghcr.io/element-hq/synapse:latest",
 		Env: map[string]string{
 			"SYNAPSE_SERVER_NAME":  config.ServerName,
 			"SYNAPSE_REPORT_STATS": "no",

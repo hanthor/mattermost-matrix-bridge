@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/golang/mock/gomock"
-	"github.com/mattermost/mattermost-plugin-matrix-bridge/server/mocks"
-	matrixtest "github.com/mattermost/mattermost-plugin-matrix-bridge/testcontainers/matrix"
+	"github.com/hanthor/mautrix-mattermost/legacy-plugin/server/mocks"
+	matrixtest "github.com/hanthor/mautrix-mattermost/legacy-plugin/testcontainers/matrix"
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/mattermost/mattermost/server/public/plugin/plugintest"
 	"github.com/stretchr/testify/assert"

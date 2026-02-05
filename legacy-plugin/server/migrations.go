@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mattermost/mattermost-plugin-matrix-bridge/server/store/kvstore"
+	"github.com/hanthor/mautrix-mattermost/legacy-plugin/server/store/kvstore"
 	"github.com/pkg/errors"
 )
 

@@ -11,10 +11,8 @@ import (
 	"maunium.net/go/mautrix/bridgev2/networkid"
 
 	"github.com/mattermost/mattermost/server/public/model"
+	"github.com/hanthor/mautrix-mattermost/mattermost/msgconv"
 )
-
-
-
 
 type NetworkConfig struct {
 	ServerURL  string `yaml:"server_url"`
@@ -26,6 +24,7 @@ type MattermostConnector struct {
 	Config *NetworkConfig
 	Client   *Client
 	WSClient *model.WebSocketClient
+	MsgConv  *msgconv.MessageConverter
 	
 	usersLock sync.RWMutex
 	users     map[networkid.UserLoginID]*bridgev2.UserLogin
@@ -64,6 +63,7 @@ func (m *MattermostConnector) GetName() bridgev2.BridgeName {
 func (m *MattermostConnector) Init(br *bridgev2.Bridge) {
 	m.Bridge = br
 	m.users = make(map[networkid.UserLoginID]*bridgev2.UserLogin)
+	m.MsgConv = msgconv.New(br)
 }
 
 

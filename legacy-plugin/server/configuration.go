@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/mattermost/mattermost-plugin-matrix-bridge/server/matrix"
+	"github.com/hanthor/mautrix-mattermost/legacy-plugin/server/matrix"
 	"github.com/pkg/errors"
 )
 

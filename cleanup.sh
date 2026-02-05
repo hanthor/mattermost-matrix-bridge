@@ -1,5 +1,21 @@
 #!/bin/bash
-set -e
+
+# Detect container runtime
+if command -v docker &> /dev/null; then
+    DOCKER_CMD="docker"
+    COMPOSE_CMD="docker compose"
+elif command -v podman &> /dev/null; then
+    DOCKER_CMD="podman"
+    if command -v podman-compose &> /dev/null; then
+        COMPOSE_CMD="podman-compose"
+    else
+        COMPOSE_CMD="podman compose"
+    fi
+else
+    echo "Error: Neither docker nor podman found."
+    exit 1
+fi
+
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -19,8 +35,8 @@ fi
 
 # 1. Stop and remove containers from docker-compose
 echo -e "${GREEN}[1/5] Stopping docker-compose services...${NC}"
-if docker compose ps -q > /dev/null 2>&1; then
-    docker compose down
+if $COMPOSE_CMD ps -q > /dev/null 2>&1; then
+    $COMPOSE_CMD down
     echo "✓ Docker compose services stopped"
 else
     echo "✓ No compose services running"
@@ -28,12 +44,12 @@ fi
 
 # 2. Kill any orphaned mattermost or matrix containers
 echo -e "${GREEN}[2/5] Searching for orphaned containers...${NC}"
-ORPHANS=$(docker ps -a --filter "name=mattermost" --filter "name=synapse" --filter "name=element" --filter "name=matrix" --format "{{.Names}}" | grep -v "^mautrix-go-bridge-" || true)
+ORPHANS=$($DOCKER_CMD ps -a --filter "name=mattermost" --filter "name=synapse" --filter "name=element" --filter "name=matrix" --format "{{.Names}}" | grep -v "^mautrix-go-bridge-" || true)
 
 if [ -n "$ORPHANS" ]; then
     echo -e "${YELLOW}Found orphaned containers:${NC}"
     echo "$ORPHANS"
-    echo "$ORPHANS" | xargs -r docker rm -f
+    echo "$ORPHANS" | xargs -r $DOCKER_CMD rm -f
     echo "✓ Orphaned containers removed"
 else
     echo "✓ No orphaned containers found"
@@ -47,7 +63,7 @@ echo "✓ Config files removed"
 # 4. Optionally remove volumes and synapse data
 if [ "$FULL_WIPE" = true ]; then
     echo -e "${GREEN}[4/5] Removing volumes and database data...${NC}"
-    docker compose down -v 2>/dev/null || true
+    $COMPOSE_CMD down -v 2>/dev/null || true
     rm -rf synapse-data
     echo "✓ All data wiped"
 else

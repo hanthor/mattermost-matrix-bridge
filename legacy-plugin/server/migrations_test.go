@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/mattermost/mattermost-plugin-matrix-bridge/server/store/kvstore"
+	"github.com/hanthor/mautrix-mattermost/legacy-plugin/server/store/kvstore"
 	"github.com/stretchr/testify/assert"
 )
 

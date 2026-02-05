@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/mattermost/mattermost-plugin-matrix-bridge/server/matrix"
+	"github.com/hanthor/mautrix-mattermost/legacy-plugin/server/matrix"
 	"github.com/mattermost/mattermost/server/public/plugin/plugintest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"

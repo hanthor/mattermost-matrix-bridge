@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/golang/mock/gomock"
-	"github.com/mattermost/mattermost-plugin-matrix-bridge/server/mocks"
+	"github.com/hanthor/mautrix-mattermost/legacy-plugin/server/mocks"
 	"github.com/stretchr/testify/require"
 )
 

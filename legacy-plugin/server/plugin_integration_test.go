@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	matrixtest "github.com/mattermost/mattermost-plugin-matrix-bridge/testcontainers/matrix"
+	matrixtest "github.com/hanthor/mautrix-mattermost/legacy-plugin/testcontainers/matrix"
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/mattermost/mattermost/server/public/plugin/plugintest"
 	"github.com/stretchr/testify/assert"

@@ -1,5 +1,21 @@
 #!/bin/bash
-set -e
+
+# Detect container runtime
+if command -v docker &> /dev/null; then
+    DOCKER_CMD="docker"
+    COMPOSE_CMD="docker compose"
+elif command -v podman &> /dev/null; then
+    DOCKER_CMD="podman"
+    if command -v podman-compose &> /dev/null; then
+        COMPOSE_CMD="podman-compose"
+    else
+        COMPOSE_CMD="podman compose"
+    fi
+else
+    echo "Error: Neither docker nor podman found."
+    exit 1
+fi
+
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -10,14 +26,14 @@ echo -e "${GREEN}=== Mattermost-Matrix Bridge Provisioning ===${NC}"
 
 # 1. Wait for Mattermost (using mmctl instead of curl)
 echo -e "${GREEN}[1/6] Waiting for Mattermost...${NC}"
-until docker exec mautrix-go-bridge-mattermost-1 mmctl version --local > /dev/null 2>&1; do
+until $DOCKER_CMD exec mautrix-mattermost_mattermost_1 mmctl version --local > /dev/null 2>&1; do
   sleep 3
 done
 echo "✓ Mattermost is ready"
 
 # 2. Create Admin User
 echo -e "${GREEN}[2/6] Setting up admin user...${NC}"
-docker exec mautrix-go-bridge-mattermost-1 mmctl user create \
+$DOCKER_CMD exec mautrix-mattermost_mattermost_1 mmctl user create \
   --email admin@example.com \
   --username sysadmin \
   --password 'Sys@dmin123' \
@@ -26,15 +42,15 @@ docker exec mautrix-go-bridge-mattermost-1 mmctl user create \
 
 # 3. Create Team and Channel
 echo -e "${GREEN}[3/6] Creating team and channel...${NC}"
-docker exec mautrix-go-bridge-mattermost-1 mmctl team create \
+$DOCKER_CMD exec mautrix-mattermost_mattermost_1 mmctl team create \
   --name test-team \
   --display-name "Test Team" \
   --local 2>&1 | grep -q "created\|exists" && echo "✓ Team ready" || echo "✓ Team exists"
 
-docker exec mautrix-go-bridge-mattermost-1 mmctl team users add test-team sysadmin --local > /dev/null 2>&1
+$DOCKER_CMD exec mautrix-mattermost_mattermost_1 mmctl team users add test-team sysadmin --local > /dev/null 2>&1
 echo "✓ User added to team"
 
-docker exec mautrix-go-bridge-mattermost-1 mmctl channel create \
+$DOCKER_CMD exec mautrix-mattermost_mattermost_1 mmctl channel create \
   --team test-team \
   --name test-channel \
   --display-name "Test Channel" \
@@ -42,15 +58,15 @@ docker exec mautrix-go-bridge-mattermost-1 mmctl channel create \
 
 # 4. Enable and Generate PAT
 echo -e "${GREEN}[4/6] Configuring PAT...${NC}"
-docker exec mautrix-go-bridge-mattermost-1 mmctl config set ServiceSettings.EnableUserAccessTokens true --local > /dev/null 2>&1
+$DOCKER_CMD exec mautrix-mattermost_mattermost_1 mmctl config set ServiceSettings.EnableUserAccessTokens true --local > /dev/null 2>&1
 echo "✓ PAT enabled"
 
 # Try to get existing token first
-TOKEN=$(docker exec mautrix-go-bridge-mattermost-1 mmctl user token list sysadmin --local --json 2>&1 | grep -oP '"token":\s*"\K[^"]+' | head -1)
+TOKEN=$($DOCKER_CMD exec mautrix-mattermost_mattermost_1 mmctl user token list sysadmin --local --json 2>&1 | grep -oP '"token":\s*"\K[^"]+' | head -1)
 
 # If no token exists, create one
 if [ -z "$TOKEN" ]; then
-    TOKEN_JSON=$(docker exec mautrix-go-bridge-mattermost-1 mmctl token generate sysadmin bridgetoken --local --json 2>&1)
+    TOKEN_JSON=$($DOCKER_CMD exec mautrix-mattermost_mattermost_1 mmctl token generate sysadmin bridgetoken --local --json 2>&1)
     TOKEN=$(echo "$TOKEN_JSON" | grep -oP '"token":\s*"\K[^"]+' | head -1)
 fi
 
@@ -72,7 +88,7 @@ echo "✓ Config updated"
 
 # 6. Restart Bridge
 echo -e "${GREEN}[6/6] Restarting bridge...${NC}"
-docker compose restart bridge > /dev/null 2>&1
+$COMPOSE_CMD restart bridge > /dev/null 2>&1
 sleep 3
 echo "✓ Bridge restarted"
 

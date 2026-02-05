@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:15-alpine
+    image: docker.io/library/postgres:15-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: synapse
@@ -14,7 +14,7 @@ services:
       - bridge_net
 
   synapse:
-    image: matrixdotorg/synapse:latest
+    image: docker.io/matrixdotorg/synapse:latest
     restart: unless-stopped
     environment:
       SYNAPSE_SERVER_NAME: localhost
@@ -23,27 +23,27 @@ services:
       - ./synapse-data:/data
       - ./registration.yaml:/data/registration.yaml
     ports:
-      - 8080:8008
+      - 40008:8008
     depends_on:
       - postgres
     networks:
       - bridge_net
 
   element:
-    image: vectorim/element-web:latest
+    image: docker.io/vectorim/element-web:latest
     restart: unless-stopped
     ports:
-      - 8080:80
+      - 40080:80
     volumes:
       - ./element-config.json:/app/config.json
     networks:
       - bridge_net
 
   mattermost:
-    image: mattermost/mattermost-team-edition:latest
+    image: docker.io/mattermost/mattermost-team-edition:latest
     restart: unless-stopped
     ports:
-      - 8080:8065
+      - 40065:8065
     environment:
       MM_SERVICESETTINGS_SITEURL: http://localhost:8065
       MM_SERVICESETTINGS_ENABLELOCALMODE: "true"
@@ -56,7 +56,7 @@ services:
       - bridge_net
 
   postgres-mm:
-    image: postgres:15-alpine
+    image: docker.io/library/postgres:15-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: mmuser
