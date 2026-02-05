@@ -275,9 +275,56 @@ func (m *MattermostAPI) CreateChatWithGhost(ctx context.Context, ghost *bridgev2
 	}, nil
 }
 
+// HandleMatrixEdit handles edit events from Matrix, updating the corresponding Mattermost post
+func (m *MattermostAPI) HandleMatrixEdit(ctx context.Context, edit *bridgev2.MatrixEdit) error {
+	if edit.EditTarget == nil {
+		return fmt.Errorf("no edit target")
+	}
+	
+	// Get the post ID from the edit target
+	postID := string(edit.EditTarget.ID)
+	
+	// Fetch the existing post to update it
+	existingPost, _, err := m.Client.GetPost(ctx, postID, "")
+	if err != nil {
+		return fmt.Errorf("failed to get post for edit: %w", err)
+	}
+	
+	// Convert the new content
+	newPost, err := m.Connector.MsgConv.ToMattermost(ctx, m.Client, edit.Portal, edit.Content)
+	if err != nil {
+		return fmt.Errorf("failed to convert edit content: %w", err)
+	}
+	
+	// Update the post message
+	existingPost.Message = newPost.Message
+	
+	// Update the post in Mattermost
+	_, _, err = m.Client.UpdatePost(ctx, postID, existingPost)
+	if err != nil {
+		return fmt.Errorf("failed to update post: %w", err)
+	}
+	
+	return nil
+}
 
-
-
+// HandleMatrixMessageRemove handles redaction events from Matrix, deleting the corresponding Mattermost post
+func (m *MattermostAPI) HandleMatrixMessageRemove(ctx context.Context, remove *bridgev2.MatrixMessageRemove) error {
+	if remove.TargetMessage == nil {
+		return fmt.Errorf("no target message")
+	}
+	
+	// Get the post ID from the target message
+	postID := string(remove.TargetMessage.ID)
+	
+	// Delete the post in Mattermost
+	_, err := m.Client.DeletePost(ctx, postID)
+	if err != nil {
+		return fmt.Errorf("failed to delete post: %w", err)
+	}
+	
+	return nil
+}
 
 
 
