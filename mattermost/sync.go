@@ -340,24 +340,150 @@ func (s *SyncEngine) SyncHistoricalMessages(ctx context.Context, channelID strin
 		limit = 100 // Default
 	}
 	
+	login := s.getAnyLogin()
+	if login == nil {
+		return fmt.Errorf("no logged-in user available for backfill")
+	}
+	
 	// Get posts for channel
 	postList, _, err := s.Connector.Client.GetPostsForChannel(ctx, channelID, 0, limit, "", false, false)
 	if err != nil {
 		return fmt.Errorf("failed to get posts: %w", err)
 	}
 	
-	fmt.Printf("INFO: Found %d posts to sync\n", len(postList.Posts))
+	fmt.Printf("INFO: Found %d posts to backfill\n", len(postList.Posts))
 	
 	// Posts need to be processed in order (oldest first)
 	// postList.Order is newest first, so reverse it
+	syncedCount := 0
 	for i := len(postList.Order) - 1; i >= 0; i-- {
 		postID := postList.Order[i]
 		post := postList.Posts[postID]
 		
+		// Skip system messages
+		if post.Type != "" && post.Type != "custom_post" {
+			continue
+		}
+		
 		// Create event for this historical message
-		fmt.Printf("DEBUG: Would sync historical post: %s\n", post.Id)
+		evt := &MattermostMessageEvent{
+			MattermostEvent: MattermostEvent{
+				Connector: s.Connector,
+				Timestamp: time.Unix(post.CreateAt/1000, (post.CreateAt%1000)*1000000),
+				ChannelID: post.ChannelId,
+				UserID:    post.UserId,
+			},
+			PostID:  post.Id,
+			Content: post.Message,
+			FileIds: post.FileIds,
+			RootID:  post.RootId,
+		}
+		
+		// Queue the event for processing
+		s.Connector.Bridge.QueueRemoteEvent(login, evt)
+		syncedCount++
 	}
 	
+	fmt.Printf("INFO: Queued %d historical messages for channel %s\n", syncedCount, channelID)
+	return nil
+}
+
+// BackfillChannel performs a complete backfill of a channel including messages and members
+func (s *SyncEngine) BackfillChannel(ctx context.Context, channelID string) error {
+	fmt.Printf("INFO: Starting full backfill for channel %s\n", channelID)
+	
+	// Get portal for channel
+	portalKey := networkid.PortalKey{
+		ID: networkid.PortalID(channelID),
+	}
+	
+	portal, err := s.Connector.Bridge.GetPortalByKey(ctx, portalKey)
+	if err != nil {
+		return fmt.Errorf("failed to get portal: %w", err)
+	}
+	
+	// Sync channel memberships first
+	if err := s.SyncChannelMemberships(ctx, channelID, portal); err != nil {
+		fmt.Printf("WARN: Failed to sync memberships for channel %s: %v\n", channelID, err)
+	}
+	
+	// Then backfill historical messages
+	if s.Connector.Config.Mirror.SyncHistory {
+		if err := s.SyncHistoricalMessages(ctx, channelID, 0); err != nil {
+			fmt.Printf("WARN: Failed to backfill messages for channel %s: %v\n", channelID, err)
+		}
+	}
+	
+	return nil
+}
+
+// SyncChannelMemberships syncs all channel members to the Matrix room
+func (s *SyncEngine) SyncChannelMemberships(ctx context.Context, channelID string, portal *bridgev2.Portal) error {
+	members, _, err := s.Connector.Client.GetChannelMembers(ctx, channelID, 0, 1000, "")
+	if err != nil {
+		return fmt.Errorf("failed to get channel members: %w", err)
+	}
+	
+	fmt.Printf("INFO: Syncing %d members for channel %s\n", len(members), channelID)
+	
+	// Create Matrix Admin client if available for direct room joins
+	var matrixAdmin *MatrixAdminClient
+	if s.Connector.Config.SynapseAdmin.Token != "" {
+		matrixAdmin = NewMatrixAdminClient(
+			s.Connector.Config.SynapseAdmin.URL,
+			s.Connector.Config.SynapseAdmin.Token,
+		)
+	}
+	
+	serverName := s.Connector.Bridge.Matrix.ServerName()
+	joinedCount := 0
+	
+	for _, member := range members {
+		// Get Mattermost user info
+		user, _, err := s.Connector.Client.GetUser(ctx, member.UserId, "")
+		if err != nil {
+			fmt.Printf("WARN: Failed to get user %s: %v\n", member.UserId, err)
+			continue
+		}
+		
+		// Ensure ghost exists
+		ghostID := networkid.UserID(user.Id)
+		_, err = s.Connector.Bridge.GetGhostByID(ctx, ghostID)
+		if err != nil {
+			fmt.Printf("WARN: Failed to get ghost for user %s: %v\n", user.Username, err)
+			continue
+		}
+		
+		// If we have Matrix admin access and create_matrix_accounts is enabled,
+		// join the real Matrix user to the room
+		if matrixAdmin != nil && s.Connector.Config.Mirror.CreateMatrixAccounts {
+			mxid := GenerateMatrixUserID(user, serverName)
+			if err := matrixAdmin.JoinUserToRoom(ctx, mxid, portal.MXID); err != nil {
+				fmt.Printf("DEBUG: Could not join %s to %s: %v\n", mxid, portal.MXID, err)
+			} else {
+				joinedCount++
+			}
+		}
+	}
+	
+	fmt.Printf("INFO: Joined %d Matrix users to room %s\n", joinedCount, portal.MXID)
+	return nil
+}
+
+// BackfillAllChannels backfills all synced channels
+func (s *SyncEngine) BackfillAllChannels(ctx context.Context) error {
+	fmt.Printf("INFO: Starting backfill for all synced channels...\n")
+	
+	backfilledCount := 0
+	for channelID := range s.syncedChannels {
+		if err := s.BackfillChannel(ctx, channelID); err != nil {
+			fmt.Printf("WARN: Failed to backfill channel %s: %v\n", channelID, err)
+			continue
+		}
+		backfilledCount++
+	}
+	
+	fmt.Printf("INFO: Backfilled %d channels\n", backfilledCount)
 	return nil
 }
 
