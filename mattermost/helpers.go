@@ -21,23 +21,19 @@ func (m *MattermostConnector) EnsureGhost(ctx context.Context, mxid string) (str
 	// - is preserved
 	cleanMXID := strings.TrimPrefix(mxid, "@")
 	var sb strings.Builder
-	sb.WriteString("matrix_")
+	sb.WriteString("mx.")
 	
 	for _, char := range cleanMXID {
 		switch char {
 		case '_':
 			sb.WriteString("__")
 		case ':':
-			// User requested . instead of _c for better readability
-			sb.WriteRune('.')
+			// Replace colon with underscore as requested by user
+			sb.WriteRune('_')
 		default:
 			// Mattermost allows letters, numbers, ., -, _
-			// We should probably strip anything else or encode it
-			if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char == '-' {
+			if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char == '-' || char == '.' {
 				sb.WriteRune(char)
-			} else if char == '.' {
-				// We're using . for :, so we need to escape existing .
-				sb.WriteString("_d")
 			} else if char >= 'A' && char <= 'Z' {
 				sb.WriteRune(char + 32) // basic lowercase
 			} else {
@@ -89,6 +85,23 @@ func (m *MattermostConnector) EnsureGhost(ctx context.Context, mxid string) (str
 			return user.Id, nil
 		}
 		return "", fmt.Errorf("failed to create Mattermost user for ghost: %w", err)
+	}
+
+	// 4. Update ghost metadata if possible to cache the ID
+	ghost, _ := m.Bridge.GetGhostByID(ctx, networkid.UserID(mxid))
+	if ghost != nil {
+		if ghost.Metadata == nil {
+			ghost.Metadata = make(map[string]any)
+		}
+		if meta, ok := ghost.Metadata.(map[string]any); ok {
+			if meta["mm_id"] != createdUser.Id {
+				meta["mm_id"] = createdUser.Id
+				ghost.Metadata = meta
+				if ghost.Ghost != nil {
+					_ = m.Bridge.DB.Ghost.Update(ctx, ghost.Ghost)
+				}
+			}
+		}
 	}
 
 	return createdUser.Id, nil

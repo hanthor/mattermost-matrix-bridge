@@ -267,7 +267,7 @@ func (h *SlashCommandHandler) joinResponse(ctx context.Context, userID string, a
 	// Sanitize for Mattermost channel naming
 	channelName = strings.ReplaceAll(channelName, ":", "_")
 	channelName = strings.ReplaceAll(channelName, ".", "_")
-	channelName = "matrix_" + channelName
+	channelName = "mx." + channelName
 
 	// Truncate if too long (Mattermost max is 64 chars)
 	if len(channelName) > 64 {

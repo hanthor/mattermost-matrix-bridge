@@ -217,6 +217,45 @@ func (c *MatrixAdminClient) GetUserInfo(ctx context.Context, userID id.UserID) (
 	return &userInfo, nil
 }
 
+// ProfileResponse represents the response from getting a user's profile
+type ProfileResponse struct {
+	DisplayName string `json:"displayname"`
+	AvatarURL   string `json:"avatar_url"`
+}
+
+// GetProfile retrieves a user's profile from the Matrix Client-Server API
+// Note: This uses the public CS API, not the Admin API, but likely works with Admin Token
+func (c *MatrixAdminClient) GetProfile(ctx context.Context, userID id.UserID) (*ProfileResponse, error) {
+	url := fmt.Sprintf("%s/_matrix/client/v3/profile/%s", c.BaseURL, userID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	
+	// Admin token usually works for client C-S API as well
+	req.Header.Set("Authorization", "Bearer "+c.AdminToken)
+	
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get profile: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil // Profile not set
+	}
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to get profile (status %d): %s", resp.StatusCode, string(respBody))
+	}
+	
+	var profile ProfileResponse
+	if err := json.NewDecoder(resp.Body).Decode(&profile); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+	
+	return &profile, nil
+}
 // GenerateMatrixUserID creates a Matrix user ID from a Mattermost user
 func GenerateMatrixUserID(mmUser *model.User, serverName string) id.UserID {
 	// Use Mattermost username as the localpart, sanitized

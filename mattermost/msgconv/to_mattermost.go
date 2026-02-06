@@ -40,6 +40,7 @@ func (mc *MessageConverter) ToMattermost(
 		body = content.Body
 	}
 	post.Message = body
+	log.Info().Str("body", body).Msg("ToMattermost converted body")
 
 	// Handle Media
 	if content.MsgType == event.MsgImage || content.MsgType == event.MsgFile || content.MsgType == event.MsgVideo || content.MsgType == event.MsgAudio {

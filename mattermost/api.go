@@ -26,19 +26,23 @@ type MattermostAPI struct {
 }
 
 func (m *MattermostAPI) getMMID(ctx context.Context, ghostID networkid.UserID) string {
+	// Try metadata first
 	ghost, err := m.Connector.Bridge.GetGhostByID(ctx, ghostID)
-	if err != nil || ghost == nil || ghost.Metadata == nil {
-		return string(ghostID)
+	if err == nil && ghost != nil && ghost.Metadata != nil {
+		if meta, ok := ghost.Metadata.(map[string]any); ok {
+			if id, _ := meta["mm_id"].(string); id != "" {
+				return id
+			}
+		}
 	}
-	meta, ok := ghost.Metadata.(map[string]any)
-	if !ok {
-		return string(ghostID)
+
+	// Fallback to EnsureGhost which guarantees a UUID or error
+	mmID, err := m.Connector.EnsureGhost(ctx, string(ghostID))
+	if err != nil {
+		m.Connector.Bridge.Log.Warn().Err(err).Str("ghost_id", string(ghostID)).Msg("Failed to resolve MM ID for ghost")
+		return ""
 	}
-	id, _ := meta["mm_id"].(string)
-	if id == "" {
-		return string(ghostID)
-	}
-	return id
+	return mmID
 }
 
 func (m *MattermostAPI) getOwnMMID() string {
@@ -69,6 +73,38 @@ func (m *MattermostAPI) UploadFile(ctx context.Context, data []byte, channelID, 
 }
 
 func (m *MattermostAPI) Connect(ctx context.Context) error {
+	if m.Login == nil {
+		return nil
+	}
+	
+	// Fetch our own user details to resolve UUID
+	user, _, err := m.Client.GetMe(ctx, "")
+	if err != nil {
+		return fmt.Errorf("failed to get own user details: %w", err)
+	}
+	
+	m.Connector.Bridge.Log.Info().Str("username", user.Username).Str("user_id", user.Id).Msg("Connected to Mattermost as")
+	
+	// Update metadata if needed
+	if m.Login.Metadata == nil {
+		m.Login.Metadata = make(map[string]any)
+	}
+	
+	meta, ok := m.Login.Metadata.(map[string]any)
+	if !ok {
+		// Should be a map, force reset if not
+		meta = make(map[string]any)
+	}
+	
+	if meta["mm_id"] != user.Id {
+		meta["mm_id"] = user.Id
+		m.Login.Metadata = meta
+		err = m.Login.Save(ctx)
+		if err != nil {
+			m.Connector.Bridge.Log.Warn().Err(err).Msg("Failed to save login metadata")
+		}
+	}
+	
 	return nil
 }
 
@@ -192,7 +228,7 @@ func (m *MattermostAPI) isGhost(ctx context.Context, userID string) bool {
 	if err != nil {
 		return false
 	}
-	return strings.HasPrefix(user.Username, "matrix_")
+	return strings.HasPrefix(user.Username, "mx.")
 }
 
 func (m *MattermostAPI) LogoutRemote(ctx context.Context) {}
@@ -205,6 +241,16 @@ func (m *MattermostAPI) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 
 	post.ChannelId = string(msg.Portal.ID)
 	// post.Message is already set by ToMattermost
+	
+	// Workaround: Strip "User: " prefix if added by bridge core (relay mode artifact)
+	// Matches "**User**: message"
+	if strings.HasPrefix(post.Message, "**") {
+		parts := strings.SplitN(post.Message, ": ", 2)
+		if len(parts) == 2 && strings.HasSuffix(parts[0], "**") {
+			post.Message = parts[1]
+		}
+	}
+
 	// post.FileIds is already set by ToMattermost
 
 	// Handle thread replies: if there's a thread root, set RootId
@@ -219,6 +265,18 @@ func (m *MattermostAPI) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	userClient, mmUserID, err := m.Connector.GetClientForUser(ctx, senderMXID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to get client for ghost: %w", err)
+	}
+
+	// Update ghost profile if needed (avatar/name)
+	ghost, err := m.Connector.Bridge.GetGhostByID(ctx, networkid.UserID(senderMXID.String()))
+	if err == nil {
+		m.Connector.Bridge.Log.Info().Str("mxid", senderMXID.String()).Msg("Calling UpdateGhost from HandleMatrixMessage")
+		err = m.UpdateGhost(ctx, ghost)
+		if err != nil {
+			m.Connector.Bridge.Log.Warn().Err(err).Msg("Failed to update ghost profile")
+		}
+	} else {
+		m.Connector.Bridge.Log.Warn().Err(err).Str("mxid", senderMXID.String()).Msg("Failed to get ghost for profile update")
 	}
 
 	m.Connector.Bridge.Log.Info().Str("matrix_user", senderMXID.String()).Str("mm_user_id", mmUserID).Msg("Ghost Puppeting with Token")
@@ -310,7 +368,32 @@ func (m *MattermostAPI) CreateChatWithGhost(ctx context.Context, ghost *bridgev2
 		return nil, bridgev2.ErrNotLoggedIn
 	}
 	myUserID := m.getOwnMMID()
-	otherUserID := m.getMMID(ctx, ghost.ID)
+	
+	// Resolve otherUserID from the passed ghost object directly if possible
+	var otherUserID string
+	if ghost.Metadata != nil {
+		if meta, ok := ghost.Metadata.(map[string]any); ok {
+			if id, ok := meta["mm_id"].(string); ok && id != "" {
+				otherUserID = id
+			}
+		}
+	}
+	
+	if otherUserID == "" {
+		otherUserID = m.getMMID(ctx, ghost.ID)
+	}
+
+	fmt.Printf("DEBUG: CreateDirectChannelWithBoth myID=%s otherID=%s ghostID=%s\n", myUserID, otherUserID, ghost.ID)
+	
+	// Ensure we don't pass the Matrix ID (username) if we failed to resolve UUID
+	if otherUserID == string(ghost.ID) && strings.Contains(otherUserID, "matrix_") {
+		// Try to resolve username to ID one last time
+		user, err := m.Client.GetUserByUsername(ctx, otherUserID)
+		if err == nil && user != nil {
+			otherUserID = user.Id
+			fmt.Printf("DEBUG: Resolved username %s to UUID %s\n", string(ghost.ID), otherUserID)
+		}
+	}
 	
 	channel, err := m.Client.CreateDirectChannelWithBoth(ctx, myUserID, otherUserID)
 	if err != nil {
