@@ -215,17 +215,15 @@ func (m *MattermostAPI) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	// Get the sender's Matrix user ID
 	senderMXID := msg.Event.Sender
 	
-	// Get or create ghost for this Matrix user
-	ghost, err := m.Connector.Bridge.GetGhostByID(ctx, networkid.UserID(senderMXID.String()))
+	// Get authenticated client for the ghost user and their MM ID
+	userClient, mmUserID, err := m.Connector.GetClientForUser(ctx, senderMXID.String())
 	if err != nil {
-		return nil, fmt.Errorf("failed to get ghost for sender: %w", err)
+		return nil, fmt.Errorf("failed to get client for ghost: %w", err)
 	}
-	
-	// Get the Mattermost user ID for this ghost
-	mmUserID := m.getMMID(ctx, ghost.ID)
-	
-	// IMPORTANT: Set the post's UserId to send as the ghost
-	// This enables ghost puppeting - the message appears from the ghost user, not relayed
+
+	m.Connector.Bridge.Log.Info().Str("matrix_user", senderMXID.String()).Str("mm_user_id", mmUserID).Msg("Ghost Puppeting with Token")
+
+	// Set the post's UserId (though the token implies it)
 	post.UserId = mmUserID
 	
 	// Mark the post as coming from Matrix to prevent loops
@@ -234,7 +232,8 @@ func (m *MattermostAPI) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 	}
 	post.Props["from_matrix"] = true
 
-	createdPost, _, err := m.Client.CreatePost(ctx, post)
+	// Use the USER'S client to create the post
+	createdPost, _, err := userClient.CreatePost(ctx, post)
 	if err != nil {
 		return nil, err
 	}
@@ -419,14 +418,12 @@ func (m *MattermostAPI) HandleMatrixReaction(ctx context.Context, reaction *brid
 	
 	// Get the emoji - bridgev2 provides the emoji via Content.RelatesTo.Key
 	emoji := reaction.Content.RelatesTo.Key
-	
 	// Get the sender's Matrix user ID for ghost puppeting
 	senderMXID := reaction.Event.Sender
-	ghost, err := m.Connector.Bridge.GetGhostByID(ctx, networkid.UserID(senderMXID.String()))
+	userClient, mmUserID, err := m.Connector.GetClientForUser(ctx, senderMXID.String())
 	if err != nil {
-		return nil, fmt.Errorf("failed to get ghost for sender: %w", err)
+		return nil, fmt.Errorf("failed to get client for ghost: %w", err)
 	}
-	mmUserID := m.getMMID(ctx, ghost.ID)
 	
 	// Create the reaction in Mattermost
 	mmReaction := &model.Reaction{
@@ -435,7 +432,7 @@ func (m *MattermostAPI) HandleMatrixReaction(ctx context.Context, reaction *brid
 		EmojiName: emoji, // Mattermost uses emoji names like "thumbsup"
 	}
 	
-	savedReaction, _, err := m.Client.SaveReaction(ctx, mmReaction)
+	savedReaction, _, err := userClient.SaveReaction(ctx, mmReaction)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save reaction: %w", err)
 	}
@@ -458,14 +455,13 @@ func (m *MattermostAPI) HandleMatrixReactionRemove(ctx context.Context, reaction
 	
 	// Get the sender's Matrix user ID for ghost puppeting
 	senderMXID := reaction.Event.Sender
-	ghost, err := m.Connector.Bridge.GetGhostByID(ctx, networkid.UserID(senderMXID.String()))
+	userClient, mmUserID, err := m.Connector.GetClientForUser(ctx, senderMXID.String())
 	if err != nil {
-		return fmt.Errorf("failed to get ghost for sender: %w", err)
+		return fmt.Errorf("failed to get client for ghost: %w", err)
 	}
-	mmUserID := m.getMMID(ctx, ghost.ID)
 	
 	// Delete the reaction in Mattermost
-	_, err = m.Client.DeleteReaction(ctx, &model.Reaction{
+	_, err = userClient.DeleteReaction(ctx, &model.Reaction{
 		UserId:    mmUserID,
 		PostId:    postID,
 		EmojiName: emoji,

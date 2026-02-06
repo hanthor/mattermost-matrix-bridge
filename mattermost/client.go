@@ -148,3 +148,8 @@ func (c *Client) CreateUser(ctx context.Context, user *model.User) (*model.User,
 	u, _, err := c.Client4.CreateUser(ctx, user)
 	return u, err
 }
+
+func (c *Client) CreateUserAccessToken(ctx context.Context, userID, description string) (*model.UserAccessToken, error) {
+	token, _, err := c.Client4.CreateUserAccessToken(ctx, userID, description)
+	return token, err
+}

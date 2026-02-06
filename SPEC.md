@@ -817,7 +817,7 @@ post.Props["from_matrix"] = true
 **Ghost User Creation:**
 - Ghost users are created on Mattermost with username pattern: `matrix_{localpart}_{server}`
 - Ghost users have `Position` set to "Matrix Bridge Ghost"
-- Reversible encoding: `_` → `__`, `:` → `_c`, special chars → `_xHH`
+- Reversible encoding: `_` → `__`, `:` → `.` (or `_c` legacy), `.` → `_d`, special chars → `_xHH`
 
 **Benefits:**
 - Messages appear to come directly from the Matrix user's ghost

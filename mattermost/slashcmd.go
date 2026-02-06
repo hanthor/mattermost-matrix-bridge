@@ -14,7 +14,6 @@ import (
 	"maunium.net/go/mautrix/id"
 
 	"github.com/mattermost/mattermost/server/public/model"
-	"go.mau.fi/util/random"
 )
 
 // SlashCommandRequest represents a request from a Mattermost slash command webhook.
@@ -314,7 +313,8 @@ func (h *SlashCommandHandler) dmResponse(ctx context.Context, userID, teamDomain
 	login := users[0]
 
 	// 1. Get/Provision the Mattermost user for this Matrix user
-	mmRecipientUsername, err := h.getOrProvisionGhost(ctx, matrixUserID)
+	// This returns the Mattermost UUID for the ghost
+	mmRecipientID, err := h.getOrProvisionGhost(ctx, matrixUserID)
 	if err != nil {
 		return &SlashCommandResponse{
 			ResponseType: "ephemeral",
@@ -322,12 +322,36 @@ func (h *SlashCommandHandler) dmResponse(ctx context.Context, userID, teamDomain
 		}
 	}
 
-	// 3. Get the ghost object using the username (the network ID)
-	ghost, err := h.Connector.Bridge.GetGhostByID(ctx, networkid.UserID(mmRecipientUsername))
+	// 3. Get the ghost object using the Matrix User ID (the network ID)
+	ghost, err := h.Connector.Bridge.GetGhostByID(ctx, networkid.UserID(matrixUserID))
 	if err != nil {
 		return &SlashCommandResponse{
 			ResponseType: "ephemeral",
 			Text:         fmt.Sprintf("❌ Failed to resolve ghost: %v", err),
+		}
+	}
+
+	// 4. Update ghost metadata with proper Mattermost UUID to ensure calls like CreateDirectChannelWithBoth work
+	if ghost.Metadata == nil {
+		ghost.Metadata = make(map[string]any)
+	}
+	// We need to handle the map type assertion safely
+	var meta map[string]any
+	if m, ok := ghost.Metadata.(map[string]any); ok {
+		meta = m
+	} else {
+		meta = make(map[string]any)
+	}
+	
+	meta["mm_id"] = mmRecipientID
+	ghost.Metadata = meta
+	
+	// Persist the metadata
+	if ghost.Ghost != nil {
+		err = h.Connector.Bridge.DB.Ghost.Update(ctx, ghost.Ghost)
+		if err != nil {
+			// Log but continue, as in-memory metadata might be enough for this request
+			fmt.Printf("DEBUG: Failed to update ghost metadata in DB: %v\n", err)
 		}
 	}
 
@@ -341,6 +365,7 @@ func (h *SlashCommandHandler) dmResponse(ctx context.Context, userID, teamDomain
 	}
 
 	// Attempt to create a DM channel
+	// CreateChatWithGhost will use the mm_id from metadata
 	chatResp, err := api.CreateChatWithGhost(ctx, ghost)
 	if err != nil {
 		return &SlashCommandResponse{
@@ -540,73 +565,14 @@ func (h *SlashCommandHandler) accountResponse(ctx context.Context, userID, userN
 // getOrProvisionGhost resolves a Matrix User ID to a Mattermost User ID.
 // If the user doesn't exist on Mattermost, it creates it.
 func (h *SlashCommandHandler) getOrProvisionGhost(ctx context.Context, mxid string) (string, error) {
-	// 1. Generate a valid Mattermost username using reversible encoding
-	// @james:reilly.asia -> matrix_james_creilly.asia
-	// _ -> __
-	// : -> _c
-	// . and - are preserved
-	cleanMXID := strings.TrimPrefix(mxid, "@")
-	var sb strings.Builder
-	sb.WriteString("matrix_")
-	
-	for _, char := range cleanMXID {
-		switch char {
-		case '_':
-			sb.WriteString("__")
-		case ':':
-			sb.WriteString("_c")
-		default:
-			// Mattermost allows letters, numbers, ., -, _
-			// We should probably strip anything else or encode it
-			if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || char == '.' || char == '-' {
-				sb.WriteRune(char)
-			} else if char >= 'A' && char <= 'Z' {
-				sb.WriteRune(char + 32) // basic lowercase
-			} else {
-				// Encode other chars as _xHH
-				sb.WriteString(fmt.Sprintf("_x%02x", char))
-			}
-		}
-	}
-	
-	username := sb.String()
-	// Mattermost limit is usually 64
-	if len(username) > 64 {
-		username = username[:64]
-	}
-
-	// 2. Check if user exists
-	user, err := h.Connector.Client.GetUserByUsername(ctx, username)
-	if err == nil && user != nil {
-		return user.Id, nil
-	}
-
-	// 3. Create user if not exists
-	// Parse MXID for pretty display name
-	localpart := cleanMXID
-	serverName := ""
-	if idx := strings.LastIndex(cleanMXID, ":"); idx != -1 {
-		localpart = cleanMXID[:idx]
-		serverName = cleanMXID[idx+1:]
-	}
-
-	email := fmt.Sprintf("%s@matrix.bridge.local", username) // Fake email
-	password := "MatrixBridge_" + random.String(16)
-
-	newUser := &model.User{
-		Username:  username,
-		Email:     email,
-		Password:  password,
-		FirstName: localpart,
-		LastName:  fmt.Sprintf("(%s)", serverName),
-		Nickname:  mxid,
-		Position:  "Matrix Bridge Ghost",
-	}
-
-	createdUser, err := h.Connector.Client.CreateUser(ctx, newUser)
+	// Delegate to the shared helper in Connector
+	// This ensures consistent username encoding and provisioning logic
+	userid, err := h.Connector.EnsureGhost(ctx, mxid)
 	if err != nil {
-		return "", fmt.Errorf("failed to create Mattermost user for ghost: %w", err)
+		return "", err
 	}
-
-	return createdUser.Username, nil
+	
+	// EnsureGhost returns the Mattermost User ID (UUID).
+	// We return this directly so callers can use it for ID-based API calls.
+	return userid, nil
 }

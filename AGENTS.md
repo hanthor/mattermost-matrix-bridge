@@ -60,17 +60,8 @@ This project uses **goolm** (pure Go implementation of Olm) instead of libolm to
 
 ```bash
 # Standard build (uses goolm, no C dependencies required)
-go build -tags nocrypto,nolitestream -o mautrix-mattermost
-
-# Alternative with CGO disabled
-CGO_ENABLED=0 go build -tags nocrypto,nolitestream -o mautrix-mattermost
+go build -tags goolm -o mautrix-mattermost
 ```
-
-**Build tags explained:**
-- `nocrypto` - Disables E2EE encryption support (not needed for this bridge)
-- `nolitestream` - Disables Litestream SQLite replication support
-
-**Note:** Do NOT use `-tags nocrypto` alone as it will try to use libolm which requires C headers (`olm/olm.h`). Always include both tags.
 
 ## Common Tasks
 
