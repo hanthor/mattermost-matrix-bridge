@@ -17,6 +17,7 @@ type MattermostEvent struct {
 	Timestamp time.Time
 	ChannelID string
 	UserID    string
+	Username  string
 }
 
 func (e *MattermostEvent) GetTimestamp() time.Time {
@@ -36,7 +37,7 @@ func (e *MattermostEvent) AddLogContext(c zerolog.Context) zerolog.Context {
 
 func (e *MattermostEvent) GetSender() bridgev2.EventSender {
 	return bridgev2.EventSender{
-		Sender: networkid.UserID(e.UserID),
+		Sender: networkid.UserID(e.Username),
 	}
 }
 
@@ -74,7 +75,7 @@ func (e *MattermostMessageEvent) ConvertMessage(ctx context.Context, portal *bri
 	// `connector.go` stores users by UserLoginID, which we set to UserID in `login.go`.
 	
 	e.Connector.usersLock.RLock()
-	source = e.Connector.users[networkid.UserLoginID(e.UserID)]
+	source = e.Connector.users[networkid.UserLoginID(e.Username)]
 	e.Connector.usersLock.RUnlock()
 	
 	if source == nil {

@@ -37,3 +37,7 @@ synapse_admin:
   
   # Admin access token (must be server admin)
   token: ""
+
+# Slash command token (from Mattermost slash command integration)
+# Set this to the token shown when you create a slash command in Mattermost
+slash_command_token: ""

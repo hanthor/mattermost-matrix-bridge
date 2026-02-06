@@ -125,3 +125,26 @@ func (c *Client) GetFilePreview(ctx context.Context, fileID string) ([]byte, err
 	data, _, err := c.Client4.GetFilePreview(ctx, fileID)
 	return data, err
 }
+
+// GetTeamIcon retrieves the team icon/avatar
+func (c *Client) GetTeamIcon(ctx context.Context, teamID string) ([]byte, error) {
+	data, _, err := c.Client4.GetTeamIcon(ctx, teamID, "")
+	return data, err
+}
+
+// GetTeamsForUser retrieves all teams a user is a member of
+func (c *Client) GetTeamsForUser(ctx context.Context, userID string) ([]*model.Team, error) {
+	teams, _, err := c.Client4.GetTeamsForUser(ctx, userID, "")
+	return teams, err
+}
+
+// GetTeamMembers retrieves all members of a team
+func (c *Client) GetTeamMembers(ctx context.Context, teamID string, page, perPage int) ([]*model.TeamMember, error) {
+	members, _, err := c.Client4.GetTeamMembers(ctx, teamID, page, perPage, "")
+	return members, err
+}
+
+func (c *Client) CreateUser(ctx context.Context, user *model.User) (*model.User, error) {
+	u, _, err := c.Client4.CreateUser(ctx, user)
+	return u, err
+}

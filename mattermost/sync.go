@@ -146,6 +146,13 @@ func (s *SyncEngine) SyncTeam(ctx context.Context, team *model.Team) error {
 		}
 	}
 	
+	// Sync team memberships - join all team members to the Matrix Space
+	if portal.MXID != "" {
+		if err := s.SyncTeamMemberships(ctx, team.Id, portal); err != nil {
+			fmt.Printf("WARN: Failed to sync team memberships for %s: %v\n", team.Name, err)
+		}
+	}
+	
 	return nil
 }
 
@@ -270,11 +277,23 @@ func (s *SyncEngine) SyncUsers(ctx context.Context) error {
 			}
 			
 			// Ensure ghost exists for this user
-			ghostID := networkid.UserID(user.Id)
-			_, err := s.Connector.Bridge.GetGhostByID(ctx, ghostID)
+			ghostID := networkid.UserID(user.Username)
+			ghost, err := s.Connector.Bridge.GetGhostByID(ctx, ghostID)
 			if err != nil {
-				fmt.Printf("WARN: Failed to get/create ghost for user %s: %v\\n", user.Username, err)
+				fmt.Printf("WARN: Failed to get/create ghost for user %s: %v\n", user.Username, err)
 				continue
+			}
+			// Store UUID in metadata for API stability
+			if ghost.Metadata == nil {
+				ghost.Metadata = make(map[string]any)
+			}
+			meta, ok := ghost.Metadata.(map[string]any)
+			if ok && meta["mm_id"] != user.Id {
+				meta["mm_id"] = user.Id
+				err = s.Connector.Bridge.DB.Ghost.Update(ctx, ghost.Ghost)
+				if err != nil {
+					fmt.Printf("WARN: Failed to update ghost metadata for %s: %v\n", user.Username, err)
+				}
 			}
 			
 			// Optionally create a real Matrix account for the user
@@ -454,11 +473,23 @@ func (s *SyncEngine) SyncChannelMemberships(ctx context.Context, channelID strin
 		}
 		
 		// Ensure ghost exists
-		ghostID := networkid.UserID(user.Id)
-		_, err = s.Connector.Bridge.GetGhostByID(ctx, ghostID)
+		ghostID := networkid.UserID(user.Username)
+		ghost, err := s.Connector.Bridge.GetGhostByID(ctx, ghostID)
 		if err != nil {
 			fmt.Printf("WARN: Failed to get ghost for user %s: %v\n", user.Username, err)
 			continue
+		}
+		// Store UUID in metadata for API stability
+		if ghost.Metadata == nil {
+			ghost.Metadata = make(map[string]any)
+		}
+		meta, ok := ghost.Metadata.(map[string]any)
+		if ok && meta["mm_id"] != user.Id {
+			meta["mm_id"] = user.Id
+			err = s.Connector.Bridge.DB.Ghost.Update(ctx, ghost.Ghost)
+			if err != nil {
+				fmt.Printf("DEBUG: Failed to update ghost metadata: %v\n", err)
+			}
 		}
 		
 		// If we have Matrix admin access and create_matrix_accounts is enabled,
@@ -523,6 +554,70 @@ func (s *SyncEngine) inviteChannelMembers(ctx context.Context, channelID string,
 	return nil
 }
 
+// SyncTeamMemberships joins all team members to the corresponding Matrix Space
+func (s *SyncEngine) SyncTeamMemberships(ctx context.Context, teamID string, portal *bridgev2.Portal) error {
+	if portal.MXID == "" {
+		return fmt.Errorf("portal has no Matrix room ID")
+	}
+	
+	fmt.Printf("INFO: Syncing team memberships for team %s to space %s\n", teamID, portal.MXID)
+	
+	// Get all team members
+	page := 0
+	perPage := 200
+	joinedCount := 0
+	
+	// Create Matrix Admin client if available
+	var matrixAdmin *MatrixAdminClient
+	if s.Connector.Config.SynapseAdmin.Token != "" {
+		matrixAdmin = NewMatrixAdminClient(
+			s.Connector.Config.SynapseAdmin.URL,
+			s.Connector.Config.SynapseAdmin.Token,
+		)
+	}
+	
+	serverName := s.Connector.Bridge.Matrix.ServerName()
+	
+	for {
+		members, err := s.Connector.Client.GetTeamMembers(ctx, teamID, page, perPage)
+		if err != nil {
+			return fmt.Errorf("failed to get team members: %w", err)
+		}
+		
+		if len(members) == 0 {
+			break
+		}
+		
+		for _, member := range members {
+			// Get user info
+			user, _, err := s.Connector.Client.GetUser(ctx, member.UserId, "")
+			if err != nil {
+				fmt.Printf("DEBUG: Failed to get user %s: %v\n", member.UserId, err)
+				continue
+			}
+			
+			// If we have Matrix admin access and create_matrix_accounts is enabled,
+			// join the real Matrix user to the Space
+			if matrixAdmin != nil && s.Connector.Config.Mirror.CreateMatrixAccounts {
+				mxid := GenerateMatrixUserID(user, serverName)
+				if err := matrixAdmin.JoinUserToRoom(ctx, mxid, portal.MXID); err != nil {
+					fmt.Printf("DEBUG: Could not join %s to space %s: %v\n", mxid, portal.MXID, err)
+				} else {
+					joinedCount++
+				}
+			}
+		}
+		
+		page++
+		if len(members) < perPage {
+			break
+		}
+	}
+	
+	fmt.Printf("INFO: Joined %d Matrix users to space %s\n", joinedCount, portal.MXID)
+	return nil
+}
+
 // TeamSyncEvent is a synthetic event for creating team spaces
 type TeamSyncEvent struct {
 	MattermostEvent
@@ -534,11 +629,24 @@ func (e *TeamSyncEvent) GetType() bridgev2.RemoteEventType {
 }
 
 func (e *TeamSyncEvent) GetChatInfoChange(ctx context.Context) (*bridgev2.ChatInfoChange, error) {
+	chatInfo := &bridgev2.ChatInfo{
+		Name:  &e.Team.DisplayName,
+		Topic: &e.Team.Description,
+	}
+	
+	// Fetch team icon if available (LastTeamIconUpdate > 0 means icon exists)
+	if e.Team.LastTeamIconUpdate > 0 {
+		teamID := e.Team.Id
+		chatInfo.Avatar = &bridgev2.Avatar{
+			ID: networkid.AvatarID(fmt.Sprintf("team-%s-%d", teamID, e.Team.LastTeamIconUpdate)),
+			Get: func(ctx context.Context) ([]byte, error) {
+				return e.Connector.Client.GetTeamIcon(ctx, teamID)
+			},
+		}
+	}
+	
 	return &bridgev2.ChatInfoChange{
-		ChatInfo: &bridgev2.ChatInfo{
-			Name:  &e.Team.DisplayName,
-			Topic: &e.Team.Description,
-		},
+		ChatInfo: chatInfo,
 	}, nil
 }
 

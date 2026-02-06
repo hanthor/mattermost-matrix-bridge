@@ -3,13 +3,13 @@ package mattermost
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync"
 
 	"go.mau.fi/util/configupgrade"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
-
 	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/hanthor/mautrix-mattermost/mattermost/msgconv"
 	_ "embed"
@@ -47,11 +47,12 @@ type SynapseAdminConfig struct {
 }
 
 type NetworkConfig struct {
-	ServerURL    string             `yaml:"server_url"`
-	AdminToken   string             `yaml:"admin_token"`
-	Mode         BridgeMode         `yaml:"mode"`
-	Mirror       MirrorConfig       `yaml:"mirror"`
-	SynapseAdmin SynapseAdminConfig `yaml:"synapse_admin"`
+	ServerURL         string             `yaml:"server_url"`
+	AdminToken        string             `yaml:"admin_token"`
+	Mode              BridgeMode         `yaml:"mode"`
+	Mirror            MirrorConfig       `yaml:"mirror"`
+	SynapseAdmin      SynapseAdminConfig `yaml:"synapse_admin"`
+	SlashCommandToken string             `yaml:"slash_command_token"`
 }
 
 type MattermostConnector struct {
@@ -63,6 +64,11 @@ type MattermostConnector struct {
 	
 	usersLock sync.RWMutex
 	users     map[networkid.UserLoginID]*bridgev2.UserLogin
+
+	userCacheLock sync.RWMutex
+	usernameCache map[string]string // UserId -> Username
+
+	ctx context.Context
 }
 
 
@@ -93,6 +99,9 @@ func (m *MattermostConnector) UpgradeConfig(helper configupgrade.Helper) {
 	// Synapse admin settings
 	helper.Copy(configupgrade.Str, "synapse_admin", "url")
 	helper.Copy(configupgrade.Str, "synapse_admin", "token")
+
+	// Slash command settings
+	helper.Copy(configupgrade.Str, "slash_command_token")
 }
 
 // IsMirrorMode returns true if the bridge is running in mirror mode
@@ -130,7 +139,34 @@ func (m *MattermostConnector) Init(br *bridgev2.Bridge) {
 
 
 
+func (m *MattermostConnector) GetUsername(ctx context.Context, userID string) string {
+	m.userCacheLock.RLock()
+	if m.usernameCache == nil {
+		m.userCacheLock.RUnlock()
+		m.userCacheLock.Lock()
+		m.usernameCache = make(map[string]string)
+		m.userCacheLock.Unlock()
+		m.userCacheLock.RLock()
+	}
+	if username, ok := m.usernameCache[userID]; ok {
+		m.userCacheLock.RUnlock()
+		return username
+	}
+	m.userCacheLock.RUnlock()
+
+	user, _, err := m.Client.GetUser(ctx, userID, "")
+	if err != nil {
+		return userID // Fallback to ID if fetch fails
+	}
+
+	m.userCacheLock.Lock()
+	m.usernameCache[userID] = user.Username
+	m.userCacheLock.Unlock()
+	return user.Username
+}
+
 func (m *MattermostConnector) Start(ctx context.Context) error {
+	m.ctx = ctx
 	// Log bridge mode
 	mode := m.Config.Mode
 	if mode == "" {
@@ -164,14 +200,21 @@ func (m *MattermostConnector) Start(ctx context.Context) error {
 			me, _, err := m.Client.GetMe(ctx, "")
 			if err == nil {
 				// Get or create the user via the bridge's API
-				user, err := m.Bridge.GetUserByMXID(ctx, "@admin:localhost")
+				// We now use the username for the ghost ID to make MXIDs readable
+				ghost, err := m.Bridge.GetGhostByID(ctx, networkid.UserID(me.Username))
+				if err != nil {
+					fmt.Printf("DEBUG: Failed to get ghost for auto-login: %v\n", err)
+					return
+				}
+				mxid := ghost.Intent.GetMXID()
+				user, err := m.Bridge.GetUserByMXID(ctx, mxid)
 				if err != nil {
 					fmt.Printf("DEBUG: Failed to get user: %v\n", err)
 					return
 				}
 				
 				// Create login via bridge's user management
-				loginID := networkid.UserLoginID(me.Id)
+				loginID := networkid.UserLoginID(me.Username)
 				login, err := user.NewLogin(ctx, &database.UserLogin{
 					ID:         loginID,
 					BridgeID:   m.Bridge.ID,
@@ -179,6 +222,7 @@ func (m *MattermostConnector) Start(ctx context.Context) error {
 					RemoteName: me.Username,
 					Metadata: map[string]any{
 						"token": m.Config.AdminToken,
+						"mm_id": me.Id,
 					},
 				}, nil)
 				if err != nil {
@@ -197,6 +241,9 @@ func (m *MattermostConnector) Start(ctx context.Context) error {
 			}
 		}
 	}()
+
+	// Start slash command HTTP handler (listens on port 8081)
+	go m.startSlashCommandServer()
 	
 	return nil
 }
@@ -206,6 +253,27 @@ func (m *MattermostConnector) Start(ctx context.Context) error {
 
 func (m *MattermostConnector) Stop() {
 	// Stop background processes
+}
+
+// startSlashCommandServer starts an HTTP server for handling Mattermost slash commands.
+// It listens on port 8081 by default.
+func (m *MattermostConnector) startSlashCommandServer() {
+	handler := NewSlashCommandHandler(m, m.Config.SlashCommandToken)
+	
+	mux := http.NewServeMux()
+	mux.Handle("/mattermost/command", handler)
+	
+	addr := ":8081"
+	fmt.Printf("INFO: Starting slash command server on %s\n", addr)
+	
+	server := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
+	
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		fmt.Printf("ERROR: Slash command server failed: %v\n", err)
+	}
 }
 
 func (m *MattermostConnector) LoadUserLogin(ctx context.Context, login *bridgev2.UserLogin) error {

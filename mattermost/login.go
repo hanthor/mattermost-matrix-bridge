@@ -48,11 +48,12 @@ func (p *PATLogin) SubmitUserInput(ctx context.Context, input map[string]string)
 	return &bridgev2.LoginStep{
 		Type: bridgev2.LoginStepTypeComplete,
 		CompleteParams: &bridgev2.LoginCompleteParams{
-			UserLoginID: networkid.UserLoginID(me.Id),
+			UserLoginID: networkid.UserLoginID(me.Username),
 			UserLogin: &bridgev2.UserLogin{
 				UserLogin: &database.UserLogin{
 					Metadata: map[string]any{
 						"token": token,
+						"mm_id": me.Id,
 					},
 					RemoteName: me.Username,
 				},

@@ -62,6 +62,7 @@ func (m *MattermostConnector) HandleWebSocketEvent(event *model.WebSocketEvent) 
 				Timestamp: time.Unix(post.CreateAt/1000, (post.CreateAt%1000)*1000000),
 				ChannelID: post.ChannelId,
 				UserID:    post.UserId,
+				Username:  m.GetUsername(m.ctx, post.UserId),
 			},
 			PostID:  post.Id,
 			Content: post.Message,
@@ -74,11 +75,19 @@ func (m *MattermostConnector) HandleWebSocketEvent(event *model.WebSocketEvent) 
 		// Since we are using an Admin API, we might have one primary login
 		// that "receives" all events, or we might need to map it.
 		
-		// For now, let's assume we have a "manager" login or we find any login.
-		users := m.GetUsers()
-		fmt.Printf("DEBUG: Found %d users for event\n", len(users))
-		for _, login := range users {
-			m.Bridge.QueueRemoteEvent(login, evt)
+		// Dispatch to logins
+		logins := m.GetUsers()
+		fmt.Printf("DEBUG: Found %d logins for event\n", len(logins))
+		if m.IsMirrorMode() {
+			// In mirror mode, any login can process the event
+			if len(logins) > 0 {
+				m.Bridge.QueueRemoteEvent(logins[0], evt)
+			}
+		} else {
+			// In puppet mode, we might need to find the specific login
+			for _, login := range logins {
+				m.Bridge.QueueRemoteEvent(login, evt)
+			}
 		}
 
 	case model.WebsocketEventPostEdited:
@@ -99,6 +108,7 @@ func (m *MattermostConnector) HandleWebSocketEvent(event *model.WebSocketEvent) 
 					Timestamp: time.Unix(post.EditAt/1000, (post.EditAt%1000)*1000000),
 					ChannelID: post.ChannelId,
 					UserID:    post.UserId,
+					Username:  m.GetUsername(m.ctx, post.UserId),
 				},
 				PostID:  post.Id,
 				Content: post.Message,
@@ -108,8 +118,15 @@ func (m *MattermostConnector) HandleWebSocketEvent(event *model.WebSocketEvent) 
 		}
 
 		// Find the user login to dispatch the event
-		for _, login := range m.GetUsers() {
-			m.Bridge.QueueRemoteEvent(login, evt)
+		logins := m.GetUsers()
+		if m.IsMirrorMode() {
+			if len(logins) > 0 {
+				m.Bridge.QueueRemoteEvent(logins[0], evt)
+			}
+		} else {
+			for _, login := range logins {
+				m.Bridge.QueueRemoteEvent(login, evt)
+			}
 		}
 
 	case model.WebsocketEventPostDeleted:
@@ -129,13 +146,21 @@ func (m *MattermostConnector) HandleWebSocketEvent(event *model.WebSocketEvent) 
 				Timestamp: time.Unix(post.DeleteAt/1000, (post.DeleteAt%1000)*1000000),
 				ChannelID: post.ChannelId,
 				UserID:    post.UserId,
+				Username:  m.GetUsername(m.ctx, post.UserId),
 			},
 			PostID: post.Id,
 		}
 
 		// Find the user login to dispatch the event
-		for _, login := range m.GetUsers() {
-			m.Bridge.QueueRemoteEvent(login, evt)
+		logins := m.GetUsers()
+		if m.IsMirrorMode() {
+			if len(logins) > 0 {
+				m.Bridge.QueueRemoteEvent(logins[0], evt)
+			}
+		} else {
+			for _, login := range logins {
+				m.Bridge.QueueRemoteEvent(login, evt)
+			}
 		}
 
 	case model.WebsocketEventReactionAdded:
@@ -155,14 +180,22 @@ func (m *MattermostConnector) HandleWebSocketEvent(event *model.WebSocketEvent) 
 				Timestamp: time.Unix(reaction.CreateAt/1000, (reaction.CreateAt%1000)*1000000),
 				ChannelID: reaction.ChannelId,
 				UserID:    reaction.UserId,
+				Username:  m.GetUsername(m.ctx, reaction.UserId),
 			},
 			PostID:    reaction.PostId,
 			EmojiName: reaction.EmojiName,
 			Added:     true,
 		}
 
-		for _, login := range m.GetUsers() {
-			m.Bridge.QueueRemoteEvent(login, evt)
+		logins := m.GetUsers()
+		if m.IsMirrorMode() {
+			if len(logins) > 0 {
+				m.Bridge.QueueRemoteEvent(logins[0], evt)
+			}
+		} else {
+			for _, login := range logins {
+				m.Bridge.QueueRemoteEvent(login, evt)
+			}
 		}
 
 	case model.WebsocketEventReactionRemoved:
@@ -182,14 +215,22 @@ func (m *MattermostConnector) HandleWebSocketEvent(event *model.WebSocketEvent) 
 				Timestamp: time.Now(), // DeleteAt not always available
 				ChannelID: reaction.ChannelId,
 				UserID:    reaction.UserId,
+				Username:  m.GetUsername(m.ctx, reaction.UserId),
 			},
 			PostID:    reaction.PostId,
 			EmojiName: reaction.EmojiName,
 			Added:     false,
 		}
 
-		for _, login := range m.GetUsers() {
-			m.Bridge.QueueRemoteEvent(login, evt)
+		logins := m.GetUsers()
+		if m.IsMirrorMode() {
+			if len(logins) > 0 {
+				m.Bridge.QueueRemoteEvent(logins[0], evt)
+			}
+		} else {
+			for _, login := range logins {
+				m.Bridge.QueueRemoteEvent(login, evt)
+			}
 		}
 
 	}
