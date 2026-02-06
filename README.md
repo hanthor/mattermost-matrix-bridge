@@ -1,93 +1,155 @@
-# Mattermost-Matrix Bridge E2E Testing Environment
+# mautrix-mattermost
+
+A Matrix-Mattermost bridge based on the [mautrix-go](https://github.com/mautrix/go) framework.
+
+> **⚠️ PRE-RELEASE SOFTWARE**: This bridge is currently in active development. Direct Messages (DMs) have been fully tested and work reliably. Other features are functional but require further testing and refinement.
+
+## Why This Bridge?
+
+### Unlock Federation for Free Mattermost
+
+Mattermost's federation features are currently **only available in Enterprise Edition**. This bridge brings **full Matrix federation** to **any Mattermost instance**, including free/open-source deployments.
+
+**What this enables:**
+- 🌐 **True Federation** - Connect your Mattermost server to the global Matrix network
+- 💬 **Cross-Platform Messaging** - Chat with users on Element, FluffyChat, and other Matrix clients
+- 🔗 **Federated DMs** - Direct message users across different homeservers
+- 🏢 **No Enterprise License Required** - Federation for everyone
+
+### Built on Modern Bridge Architecture
+
+- **Ghost Puppeting** - Matrix users appear as native Mattermost users (not relay bots)
+- **Bidirectional Sync** - Full two-way message flow
+- **Native Threading** - Mattermost and Matrix threads map correctly
+- **Rich Content** - Text formatting, files, reactions, edits, and deletions
+
+## Current Status
+
+### ✅ Fully Tested & Working
+- **Direct Messages (DMs)** - Fully functional with federation support
+- **Message Content** - Plain text, markdown, media, files
+- **Message Actions** - Edits, deletions, reactions, threads
+- **Ghost Profiles** - Avatar and display name synchronization
+- **Slash Commands** - `/matrix dm`, `/matrix help`, `/matrix status`, etc.
+
+### 🚧 Functional but Needs Testing
+- **Public Channels** - Basic functionality works
+- **Private Channels** - Basic functionality works  
+- **Channel Metadata** - Name, topic, purpose syncing
+- **Mirror Mode** - Server-wide sync (teams → spaces, channels → rooms)
+
+### 📋 Roadmap
+
+**High Priority:**
+- [ ] **End-to-Bridge Encryption (E2B)** - Encrypt messages in transit
+- [ ] **Large Room Testing** - Join and sync large public Matrix rooms
+- [ ] **Full Mirror Mode** - Complete Matrix hijack for seamless experience
+- [ ] **Group DMs** - Multi-user DM support
+- [ ] **Typing Indicators** - Real-time typing status
+- [ ] **Read Receipts** - Message read status sync
+
+**Future Enhancements:**
+- [ ] Online/Away/DND status sync
+- [ ] Custom emoji support
+- [ ] SSO/OIDC integration
+- [ ] Web portal for Matrix credentials
+
+See [ROADMAP.md](ROADMAP.md) for the complete feature matrix.
 
 ## Quick Start
 
-### 1. Clean Start (Fresh Slate)
+### Prerequisites
+- Mattermost server (any edition)
+- Synapse homeserver
+- Docker and Docker Compose (for local testing)
+
+### Local Development Setup
+
 ```bash
-./cleanup.sh --full  # Full wipe including databases
-# OR
-./cleanup.sh         # Soft cleanup (preserves data)
+# 1. Clone the repository
+git clone https://github.com/yourusername/mautrix-mattermost
+cd mautrix-mattermost
+
+# 2. Start services
+./scripts/local-setup.sh
+
+# 3. Configure the bridge
+cp example-config.yaml config.yaml
+# Edit config.yaml with your server details
 ```
 
-### 2. Setup Environment
-```bash
-./setup.sh           # Starts all services with smart port detection
+### Production Deployment
+
+See the [deployment guide](.deploy-lkofoss.club/README.md) for Kubernetes/production setup instructions.
+
+## Usage
+
+### Slash Commands
+
+From Mattermost, use these commands to interact with Matrix:
+
+```
+/matrix help                    # Show available commands
+/matrix dm @user:example.org    # Start a DM with a Matrix user
+/matrix join #room:example.org  # Join a Matrix room
+/matrix rooms                   # List your bridged rooms
+/matrix status                  # Check bridge connection
+/matrix account                 # Get your Matrix credentials
 ```
 
-### 3. Provision Mattermost
-```bash
-./provision_mm.sh    # Creates admin user, team, channel, and configures bridge
+### Federation Example
+
+1. **In Mattermost**: `/matrix dm @alice:matrix.org`
+2. **Matrix user receives invitation** via Element/other client
+3. **Both users can chat** across platforms seamlessly
+
+## Architecture
+
+- **Ghost Users** - Matrix IDs map to Mattermost usernames (e.g., `mx.alice_matrix.org`)
+- **Personal Access Tokens** - Cached per-user for API authentication
+- **Smart Sync** - SHA256-based avatar deduplication
+- **UUID Mapping** - Reliable Mattermost ID resolution
+
+## Configuration
+
+Key configuration options in `config.yaml`:
+
+```yaml
+mattermost:
+  server_url: https://your-mattermost.example.org
+  admin_token: your_admin_token
+
+synapse_admin:
+  url: https://your-synapse.example.org
+  token: your_admin_token
+
+mirror:
+  enabled: false  # Set to true for full server sync
+  sync_all_teams: true
+  sync_all_channels: true
 ```
 
-## Scripts Overview
+See [example-config.yaml](example-config.yaml) for all options.
 
-| Script | Purpose |
-|--------|---------|
-| `cleanup.sh` | Reset environment (use `--full` for complete wipe) |
-| `setup.sh` | Start all Docker services with port conflict detection |
-| `provision_mm.sh` | Configure Mattermost and bridge connection |
+## Contributing
 
-## Access URLs
+Contributions are welcome! This bridge is in active development and we need help with:
 
-After running `setup.sh` and `provision_mm.sh`:
+- Testing large Matrix rooms
+- E2B encryption implementation
+- Mirror mode refinements
+- Documentation improvements
 
-- **Mattermost**: http://localhost:8065
-  - User: `sysadmin` / `Sys@dmin123`
-  - Team: "Test Team" → "test-channel"
+## Support
 
-- **Element** (Matrix Client): http://localhost:8080
-  - Create account or login
+- **Issues**: [GitHub Issues](https://github.com/yourusername/mautrix-mattermost/issues)
+- **Matrix Room**: Coming soon
+- **Documentation**: See [SPEC.md](SPEC.md) for technical details
 
-- **Synapse** (Matrix Server): http://localhost:8008
+## License
 
-> **Note:** Ports may differ if defaults are in use. Check script output for actual URLs.
+AGPL-3.0 - See [LICENSE](LICENSE) for details.
 
-## Testing the Bridge
+## Acknowledgments
 
-1. Login to Mattermost at http://localhost:8065
-2. Navigate to "Test Team" → "test-channel"
-3. Send a message
-4. Open Element at http://localhost:8080 and create/login to Matrix account
-5. Look for the bridged room (`#mattermost_test-channel:localhost`)
-6. Verify message appears in Matrix
-
-## Troubleshooting
-
-### View Logs
-```bash
-# All services
-docker compose logs
-
-# Specific service
-docker compose logs bridge
-docker compose logs synapse
-docker compose logs mattermost
-```
-
-### Check Status
-```bash
-docker compose ps
-```
-
-### Full Reset
-```bash
-./cleanup.sh --full
-./setup.sh
-./provision_mm.sh
-```
-
-### Port Conflicts
-The `setup.sh` script automatically detects port conflicts and uses alternative ports.
-Check the script output or `.env.urls` file for actual URLs.
-
-## File Structure
-
-- `docker-compose.yaml` - Service definitions
-- `config.yaml` - Bridge configuration (generated)
-- `registration.yaml` - Appservice registration (generated)
-- `synapse-data/` - Synapse homeserver data
-- `.env.urls` - Current service URLs (generated)
-
-## Documentation
-
-See `TESTING.md` for detailed testing procedures and manual test scenarios.
+Built with [mautrix-go](https://github.com/mautrix/go) by the mautrix team.
