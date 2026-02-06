@@ -796,7 +796,36 @@ if post.Props["from_matrix"] == true || post.RemoteId != nil {
 }
 ```
 
-### 4.3 KVStore Keys (Legacy Plugin)
+### 4.3 Ghost Puppeting (Matrix → Mattermost)
+
+When sending messages from Matrix to Mattermost, the bridge implements **ghost puppeting** where messages appear directly from ghost users rather than being relayed:
+
+```go
+// Get or create ghost for Matrix sender
+ghost, err := bridge.GetGhostByID(ctx, networkid.UserID(matrixUserID))
+
+// Get the Mattermost user ID for this ghost
+mmUserID := getMMID(ctx, ghost.ID)
+
+// Set the post's UserId to enable ghost puppeting
+post.UserId = mmUserID
+
+// Mark as from Matrix to prevent loops
+post.Props["from_matrix"] = true
+```
+
+**Ghost User Creation:**
+- Ghost users are created on Mattermost with username pattern: `matrix_{localpart}_{server}`
+- Ghost users have `Position` set to "Matrix Bridge Ghost"
+- Reversible encoding: `_` → `__`, `:` → `_c`, special chars → `_xHH`
+
+**Benefits:**
+- Messages appear to come directly from the Matrix user's ghost
+- No "UserA: message" relay prefix
+- Proper attribution and conversation flow
+- Reactions and edits work correctly
+
+### 4.4 KVStore Keys (Legacy Plugin)
 
 ```
 channel_mapping_{channelID}         → room_id
@@ -809,7 +838,7 @@ mattermost_post_{postID}            → matrixEventID
 matrix_reaction_{reactionEventID}   → {post_id, user_id, emoji_name}
 ```
 
-### 4.4 Bridge State Event
+### 4.5 Bridge State Event
 
 Store in Matrix room state for channel metadata:
 
