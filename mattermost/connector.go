@@ -11,7 +11,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"github.com/mattermost/mattermost/server/public/model"
-	"github.com/hanthor/mautrix-mattermost/mattermost/msgconv"
+	"github.com/hanthor/mattermost-matrix-bridge/mattermost/msgconv"
 	_ "embed"
 	"time"
 )

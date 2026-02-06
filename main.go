@@ -5,7 +5,7 @@ import (
 
 	"maunium.net/go/mautrix/bridgev2/matrix/mxmain"
 
-	"github.com/hanthor/mautrix-mattermost/mattermost"
+	"github.com/hanthor/mattermost-matrix-bridge/mattermost"
 )
 
 //go:embed example-config.yaml
@@ -18,9 +18,9 @@ type MattermostBridge struct {
 func main() {
 	br := &MattermostBridge{}
 	br.BridgeMain = mxmain.BridgeMain{
-		Name:        "mautrix-mattermost",
+		Name:        "mattermost-matrix-bridge",
 		Description: "A Matrix-Mattermost puppeting bridge.",
-		URL:         "https://github.com/hanthor/mautrix-mattermost",
+		URL:         "https://github.com/hanthor/mattermost-matrix-bridge",
 		Version:     "0.1.0",
 
 		Connector: &mattermost.MattermostConnector{},

@@ -33,7 +33,7 @@ check_prerequisites() {
 
 build_bridge() {
     print_step "Building bridge binary..."
-    go build -tags nocrypto -o mautrix-mattermost .
+    go build -tags nocrypto -o mattermost-matrix-bridge .
     print_success "Bridge built"
 }
 
@@ -122,8 +122,8 @@ configure_bridge() {
     print_step "Generating Registration..."
     echo "DEBUG: config.yaml content head:"
     head -n 5 config.yaml
-    if ! ./mautrix-mattermost -g -c config.yaml -r registration.yaml; then
-        echo "ERROR: mautrix-mattermost failed. Dumping config.yaml:"
+    if ! ./mattermost-matrix-bridge -g -c config.yaml -r registration.yaml; then
+        echo "ERROR: mattermost-matrix-bridge failed. Dumping config.yaml:"
         cat config.yaml
         exit 1
     fi
@@ -160,7 +160,7 @@ main() {
     echo ""
     print_success "Setup Complete!"
     echo "=========================================="
-    echo "1. Run the bridge: ./mautrix-mattermost"
+    echo "1. Run the bridge: ./mattermost-matrix-bridge"
     echo "2. Mattermost: http://localhost:8067 (admin/Admin123!)"
     echo "3. Matrix: http://localhost:8899 (admin/admin123)"
     echo "   Element: http://localhost:8081"

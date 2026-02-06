@@ -13,7 +13,7 @@ RUN go mod download
 COPY . .
 
 # Build the binary
-RUN go build -tags goolm -o /usr/bin/mautrix-mattermost ./main.go
+RUN go build -tags goolm -o /usr/bin/mattermost-matrix-bridge ./main.go
 
 # Runtime stage
 FROM alpine:3.19
@@ -23,7 +23,7 @@ WORKDIR /data
 # Install runtime dependencies (ca-certificates for HTTPS)
 RUN apk add --no-cache ca-certificates su-exec
 
-COPY --from=builder /usr/bin/mautrix-mattermost /usr/bin/mautrix-mattermost
+COPY --from=builder /usr/bin/mattermost-matrix-bridge /usr/bin/mattermost-matrix-bridge
 # Copy helper script if needed
 
-CMD ["/usr/bin/mautrix-mattermost"]
+CMD ["/usr/bin/mattermost-matrix-bridge"]

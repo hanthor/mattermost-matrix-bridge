@@ -1,8 +1,10 @@
-# mautrix-mattermost
+# matrix-mattermost-bridge
 
-A Matrix-Mattermost bridge based on the [mautrix-go](https://github.com/mautrix/go) framework.
+A Matrix-Mattermost bridge built on the [mautrix-go](https://github.com/mautrix/go) framework by Tulir Asokan.
 
 > **⚠️ PRE-RELEASE SOFTWARE**: This bridge is currently in active development. Direct Messages (DMs) have been fully tested and work reliably. Other features are functional but require further testing and refinement.
+>
+> **Note**: This is an independent project and not an official mautrix bridge.
 
 ## Why This Bridge?
 
@@ -67,8 +69,8 @@ See [ROADMAP.md](ROADMAP.md) for the complete feature matrix.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/yourusername/mautrix-mattermost
-cd mautrix-mattermost
+git clone https://github.com/hanthor/matrix-mattermost-bridge
+cd matrix-mattermost-bridge
 
 # 2. Start services
 ./scripts/local-setup.sh
@@ -80,7 +82,12 @@ cp example-config.yaml config.yaml
 
 ### Production Deployment
 
-See the [deployment guide](.deploy-lkofoss.club/README.md) for Kubernetes/production setup instructions.
+See the [deployment guide](docs/deployment.md) for production setup instructions including:
+- Kubernetes manifests
+- Docker Compose configuration  
+- TLS/SSL setup
+- Slash command integration
+- Monitoring and troubleshooting
 
 ## Usage
 
@@ -142,7 +149,7 @@ Contributions are welcome! This bridge is in active development and we need help
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/mautrix-mattermost/issues)
+- **Issues**: [GitHub Issues](https://github.com/hanthor/matrix-mattermost-bridge/issues)
 - **Matrix Room**: Coming soon
 - **Documentation**: See [SPEC.md](SPEC.md) for technical details
 
@@ -152,4 +159,6 @@ AGPL-3.0 - See [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-Built with [mautrix-go](https://github.com/mautrix/go) by the mautrix team.
+This bridge is built on the excellent [mautrix-go](https://github.com/mautrix/go) framework created by **Tulir Asokan**. The mautrix-go library provides the core Matrix protocol implementation and bridge architecture that makes this project possible.
+
+Special thanks to Tulir and Beeper, and the broader Matrix community for their foundational work on Matrix bridging infrastructure.

@@ -1,0 +1,178 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mautrix
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mattermost-matrix-bridge-pvc
+  namespace: mautrix
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mattermost-matrix-bridge-config
+  namespace: mautrix
+type: Opaque
+stringData:
+  config.yaml: |
+    # Standard Bridge Config
+    homeserver:
+      # Direct connection to Synapse pod
+      address: http://synapse.synapse.svc.cluster.local:8008
+      domain: example.com
+      software: standard
+      status_endpoint: null
+
+    appservice:
+      address: http://mattermost-matrix-bridge.mautrix.svc.cluster.local:8080
+      hostname: 0.0.0.0
+      port: 8080
+      id: mattermost
+      bot:
+        username: mattermost
+        displayname: Mattermost Bot
+        
+      # Generate with: openssl rand -hex 32
+      as_token: "YOUR_APPSERVICE_TOKEN_HERE"
+      hs_token: "YOUR_HOMESERVER_TOKEN_HERE"
+
+    # Network Config
+    network:
+      server_url: "http://mattermost.mattermost.svc.cluster.local:8065"
+      # Create a Mattermost Personal Access Token with system admin privileges
+      admin_token: "YOUR_MATTERMOST_ADMIN_TOKEN"
+      mode: "mirror"  # or "puppet" for user-based bridging
+      mirror:
+        create_matrix_accounts: false
+        sync_all_teams: true
+        sync_all_channels: true
+        sync_all_users: true
+        auto_invite_users: true
+        sync_history: true
+        history_limit: 1000
+      synapse_admin:
+        url: "http://synapse.synapse.svc.cluster.local:8008"
+        # Synapse admin API token
+        token: "YOUR_SYNAPSE_ADMIN_TOKEN"
+
+    bridge:
+      command_prefix: "!mattermost"
+      displayname_template: "{displayname}"
+      personal_filtering_spaces: true
+      delivery_receipts: true
+      backfill:
+        enable: true
+      
+      permissions:
+        "*": "user"
+        "example.com": "user"
+        
+      # Double Puppeting Configuration
+      double_puppet_allow_discovery: true
+      double_puppet_server_map:
+        example.com: http://synapse.synapse.svc.cluster.local:8008
+    
+    database:
+      type: sqlite3-fk-wal
+      uri: file:/data/bridge.db?_txlock=immediate
+      
+    # Encryption disabled for initial compatibility
+    # Can be enabled once double puppeting is stable
+    encryption:
+      allow: false
+      default: false
+      require: false
+      appservice: false
+        
+    logging:
+      min_level: info
+      writers:
+      - type: stdout
+        format: json
+        
+  registration.yaml: |
+    id: mattermost
+    # These should match the tokens in config.yaml
+    as_token: "YOUR_APPSERVICE_TOKEN_HERE"
+    hs_token: "YOUR_HOMESERVER_TOKEN_HERE"
+    sender_localpart: mattermost
+    namespaces:
+      users:
+        - exclusive: true
+          regex: '@mx\..*'
+      aliases:
+        - exclusive: true
+          regex: '#mattermost_.*'
+      rooms: []
+    url: http://mattermost-matrix-bridge.mautrix.svc.cluster.local:8080
+    rate_limited: false
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mattermost-matrix-bridge
+  namespace: mautrix
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mattermost-matrix-bridge
+  template:
+    metadata:
+      labels:
+        app: mattermost-matrix-bridge
+    spec:
+      initContainers:
+        - name: init-config
+          image: busybox:latest
+          command: ["sh", "-c", "cat /config-ro/config.yaml > /data/config.yaml && cat /config-ro/registration.yaml > /data/registration.yaml"]
+          volumeMounts:
+            - name: config
+              mountPath: /config-ro
+            - name: data
+              mountPath: /data
+      containers:
+        - name: bridge
+          image: ghcr.io/hanthor/matrix-mattermost-bridge:latest
+          imagePullPolicy: Always
+          command: ["/usr/bin/mattermost-matrix-bridge", "-c", "/data/config.yaml", "-r", "/data/registration.yaml"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          env:
+            - name: MAUTRIX_HOMESERVER_DOMAIN
+              value: "example.com"
+            - name: MAUTRIX_APPSERVICE_ADDRESS
+              value: "http://mattermost-matrix-bridge.mautrix.svc.cluster.local:8080"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mattermost-matrix-bridge-pvc
+        - name: config
+          secret:
+            secretName: mattermost-matrix-bridge-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mattermost-matrix-bridge
+  namespace: mautrix
+spec:
+  selector:
+    app: mattermost-matrix-bridge
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080

@@ -60,7 +60,7 @@ This project uses **goolm** (pure Go implementation of Olm) instead of libolm to
 
 ```bash
 # Standard build (uses goolm, no C dependencies required)
-go build -tags goolm -o mautrix-mattermost
+go build -tags goolm -o mattermost-matrix-bridge
 ```
 
 ## Common Tasks
