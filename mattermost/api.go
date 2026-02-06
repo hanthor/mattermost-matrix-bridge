@@ -118,7 +118,7 @@ func (m *MattermostAPI) GetChatInfo(ctx context.Context, portal *bridgev2.Portal
 						continue
 					}
 					ci.Members.Members = append(ci.Members.Members, bridgev2.ChatMember{
-						EventSender: bridgev2.EventSender{Sender: networkid.UserID(member.UserId)},
+						EventSender: bridgev2.EventSender{Sender: networkid.UserID(m.Connector.GetUsername(ctx, member.UserId))},
 					})
 				}
 			}
@@ -132,7 +132,7 @@ func (m *MattermostAPI) GetChatInfo(ctx context.Context, portal *bridgev2.Portal
 				ci.Members.Members = make([]bridgev2.ChatMember, len(members))
 				for i, member := range members {
 					ci.Members.Members[i] = bridgev2.ChatMember{
-						EventSender: bridgev2.EventSender{Sender: networkid.UserID(member.UserId)},
+						EventSender: bridgev2.EventSender{Sender: networkid.UserID(m.Connector.GetUsername(ctx, member.UserId))},
 					}
 				}
 			}
