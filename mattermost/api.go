@@ -197,8 +197,11 @@ func (m *MattermostAPI) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) 
 		return nil, err
 	}
 	name := user.Username
-	if user.FirstName != "" || user.LastName != "" {
-		name = fmt.Sprintf("%s %s", user.FirstName, user.LastName)
+	fullName := strings.TrimSpace(user.FirstName + " " + user.LastName)
+	if fullName != "" {
+		name = fullName
+	} else if user.Nickname != "" {
+		name = user.Nickname
 	}
 	return &bridgev2.UserInfo{
 		Name: &name,

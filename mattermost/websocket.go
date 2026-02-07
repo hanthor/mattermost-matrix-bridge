@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mattermost/mattermost/server/public/model"
+	"maunium.net/go/mautrix/bridgev2/networkid"
 )
 
 func (m *MattermostConnector) StartWebSocket() {
@@ -52,7 +53,6 @@ func (m *MattermostConnector) HandleWebSocketEvent(event *model.WebSocketEvent) 
 			return
 		}
 
-
 		// Discard events from the bridge itself if necessary
 		// But bridgev2 handles some of this via SenderLogin/Sender
 
@@ -70,11 +70,10 @@ func (m *MattermostConnector) HandleWebSocketEvent(event *model.WebSocketEvent) 
 			RootID:  post.RootId, // Thread root for replies
 		}
 
-
 		// We need to find the correct UserLogin to queue this event.
 		// Since we are using an Admin API, we might have one primary login
 		// that "receives" all events, or we might need to map it.
-		
+
 		// Dispatch to logins
 		logins := m.GetUsers()
 		fmt.Printf("DEBUG: Found %d logins for event\n", len(logins))
@@ -233,6 +232,30 @@ func (m *MattermostConnector) HandleWebSocketEvent(event *model.WebSocketEvent) 
 			}
 		}
 
+	case model.WebsocketEventUserUpdated:
+		userStr, ok := event.GetData()["user"].(string)
+		if !ok {
+			return
+		}
+		var user model.User
+		err := json.Unmarshal([]byte(userStr), &user)
+		if err != nil {
+			return
+		}
+
+		ghost, err := m.Bridge.GetGhostByID(m.ctx, networkid.UserID(user.Username))
+		if err == nil && ghost != nil {
+			logins := m.GetUsers()
+			if len(logins) > 0 && logins[0].Client != nil {
+				if api, ok := logins[0].Client.(*MattermostAPI); ok {
+					info, err := api.GetUserInfo(m.ctx, ghost)
+					if err == nil {
+						ghost.UpdateInfo(m.ctx, info)
+						fmt.Printf("INFO: Syncing profile for updated user %s\n", user.Username)
+					}
+				}
+			}
+		}
+
 	}
 }
-

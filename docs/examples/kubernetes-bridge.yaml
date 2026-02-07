@@ -67,7 +67,7 @@ stringData:
 
     bridge:
       command_prefix: "!mattermost"
-      displayname_template: "{displayname}"
+      displayname_template: "{{.}}"
       personal_filtering_spaces: true
       delivery_receipts: true
       backfill:

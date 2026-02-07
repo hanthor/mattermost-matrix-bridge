@@ -14,7 +14,7 @@ import (
 func (m *MattermostAPI) UpdateGhost(ctx context.Context, ghost *bridgev2.Ghost) error {
 	// Get the Mattermost User ID for the ghost
 	mmUserID := m.getMMID(ctx, ghost.ID)
-	
+
 	m.Connector.Bridge.Log.Info().Str("mm_user_id", mmUserID).Str("mxid", string(ghost.ID)).Str("ghost_name", ghost.Name).Str("avatar_mxc", string(ghost.AvatarMXC)).Msg("UpdateGhost called")
 
 	// If ghost profile is empty, try to fetch it from Matrix
@@ -22,7 +22,7 @@ func (m *MattermostAPI) UpdateGhost(ctx context.Context, ghost *bridgev2.Ghost) 
 		// Create ad-hoc admin client to fetch profile
 		adminClient := NewMatrixAdminClient(m.Connector.Config.SynapseAdmin.URL, m.Connector.Config.SynapseAdmin.Token)
 		profile, err := adminClient.GetProfile(ctx, id.UserID(ghost.ID))
-		
+
 		if err == nil && profile != nil {
 			m.Connector.Bridge.Log.Info().Str("displayname", profile.DisplayName).Str("avatar_url", profile.AvatarURL).Msg("Fetched profile from Matrix")
 			if profile.DisplayName != "" {
@@ -39,16 +39,16 @@ func (m *MattermostAPI) UpdateGhost(ctx context.Context, ghost *bridgev2.Ghost) 
 			m.Connector.Bridge.Log.Warn().Err(err).Msg("Failed to fetch profile from Matrix")
 		}
 	}
-	
+
 	// Get authenticated client for the ghost (for updating profile)
 	// We need a client that can update the user. System admin token (m.Client) is best.
-	
+
 	// Check if we need to update avatar
 	if ghost.AvatarMXC == "" {
 		m.Connector.Bridge.Log.Info().Str("mxid", string(ghost.ID)).Msg("Ghost has no AvatarMXC, skipping avatar update")
 	} else if ghost.AvatarHash == [32]byte{} {
 		m.Connector.Bridge.Log.Info().Str("mxid", string(ghost.ID)).Msg("Ghost has no AvatarHash, but has MXC... proceeding?")
-		// Proceeding might be risky if we don't have hash? 
+		// Proceeding might be risky if we don't have hash?
 		// Actually typical logic relies on hash to check changes.
 		// But let's log it.
 	}
@@ -70,7 +70,7 @@ func (m *MattermostAPI) UpdateGhost(ctx context.Context, ghost *bridgev2.Ghost) 
 			if err != nil {
 				return fmt.Errorf("failed to set profile image: %w", err)
 			}
-			
+
 			// Update hash and persist
 			ghost.AvatarHash = hash
 			if ghost.Ghost != nil {
@@ -82,7 +82,7 @@ func (m *MattermostAPI) UpdateGhost(ctx context.Context, ghost *bridgev2.Ghost) 
 			m.Connector.Bridge.Log.Info().Str("user_id", mmUserID).Str("mxid", string(ghost.ID)).Msg("Updated ghost avatar")
 		}
 	}
-	
+
 	// Update Display Name if changed
 	if ghost.Name != "" {
 		// Fetch current user to compare
