@@ -190,17 +190,34 @@ func (m *MattermostAPI) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) 
 		return nil, err
 	}
 	name := user.Username
-	fullName := strings.TrimSpace(user.FirstName + " " + user.LastName)
+	var parts []string
+	if user.FirstName != "" {
+		parts = append(parts, user.FirstName)
+	}
+	if user.LastName != "" {
+		parts = append(parts, user.LastName)
+	}
+	fullName := strings.Join(parts, " ")
+
 	if fullName != "" {
 		name = fullName
 	} else if user.Nickname != "" {
 		name = user.Nickname
 	}
-	m.Connector.Bridge.Log.Debug().Str("username", user.Username).Str("final_name", name).Msg("GetUserInfo returning name")
+
+	m.Connector.Bridge.Log.Debug().
+		Str("username", user.Username).
+		Str("first_name", user.FirstName).
+		Str("last_name", user.LastName).
+		Str("nickname", user.Nickname).
+		Str("calc_fullname", fullName).
+		Str("final_name", name).
+		Msg("GetUserInfo name components")
+
 	return &bridgev2.UserInfo{
 		Name: &name,
 		Avatar: &bridgev2.Avatar{
-			ID: networkid.AvatarID(fmt.Sprintf("%d-force", user.LastPictureUpdate)),
+			ID: networkid.AvatarID(fmt.Sprintf("%d-force2", user.LastPictureUpdate)),
 			Get: func(ctx context.Context) ([]byte, error) {
 				data, _, err := m.Client.GetProfileImage(ctx, user.Id, "")
 				return data, err
