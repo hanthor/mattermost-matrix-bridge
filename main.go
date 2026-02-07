@@ -18,7 +18,7 @@ type MattermostBridge struct {
 func main() {
 	br := &MattermostBridge{}
 	br.BridgeMain = mxmain.BridgeMain{
-		Name:        "mattermost-matrix-bridge",
+		Name:        "mautrix-mattermost",
 		Description: "A Matrix-Mattermost puppeting bridge.",
 		URL:         "https://github.com/hanthor/mattermost-matrix-bridge",
 		Version:     "0.1.0",
@@ -28,7 +28,3 @@ func main() {
 
 	br.Run()
 }
-
-
-
-
