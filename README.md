@@ -4,6 +4,8 @@ A Matrix-Mattermost bridge built on the [mautrix-go](https://github.com/mautrix/
 
 > **⚠️ PRE-RELEASE SOFTWARE**: This bridge is currently in active development. Direct Messages (DMs) have been fully tested and work reliably. Other features are functional but require further testing and refinement.
 >
+> **🔒 SECURITY NOTICE**: A comprehensive security review has identified critical issues that must be addressed before production deployment. See [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for details and [SECURITY_FIXES.md](SECURITY_FIXES.md) for implementation guidance.
+>
 > **Note**: This is an independent project and not an official mautrix bridge.
 
 ## Why This Bridge?
@@ -142,14 +144,29 @@ See [example-config.yaml](example-config.yaml) for all options.
 
 Contributions are welcome! This bridge is in active development and we need help with:
 
+- **Security**: Implementing fixes from [SECURITY_FIXES.md](SECURITY_FIXES.md)
 - Testing large Matrix rooms
 - E2B encryption implementation
 - Mirror mode refinements
 - Documentation improvements
 
+## Security
+
+**Important**: This bridge has undergone a security review. Please review the following documents before deployment:
+
+- 📋 [SECURITY_REVIEW.md](SECURITY_REVIEW.md) - Comprehensive security analysis
+- 🔧 [SECURITY_FIXES.md](SECURITY_FIXES.md) - Implementation guide for fixes
+- 📝 [SECURITY_SUMMARY.md](SECURITY_SUMMARY.md) - Quick reference
+- 🔒 [SECURITY.md](SECURITY.md) - Vulnerability disclosure policy
+
+**Current Security Status**: ⚠️ Not recommended for production (Critical issues identified)
+
+To report security vulnerabilities, please follow the [responsible disclosure policy](SECURITY.md).
+
 ## Support
 
 - **Issues**: [GitHub Issues](https://github.com/hanthor/matrix-mattermost-bridge/issues)
+- **Security**: See [SECURITY.md](SECURITY.md) for reporting vulnerabilities
 - **Matrix Room**: Coming soon
 - **Documentation**: See [SPEC.md](SPEC.md) for technical details
 
