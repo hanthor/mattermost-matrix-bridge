@@ -274,7 +274,9 @@ func (s *SyncEngine) SyncUsers(ctx context.Context) error {
 		}
 
 		for _, user := range users {
+			fmt.Printf("DEBUG: Processing user %s (ID: %s)\\n", user.Username, user.Id)
 			if s.syncedUsers[user.Id] {
+				fmt.Printf("DEBUG: User %s already synced, skipping\\n", user.Username)
 				continue
 			}
 
