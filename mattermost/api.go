@@ -15,10 +15,6 @@ import (
 	"github.com/mattermost/mattermost/server/public/model"
 )
 
-
-
-
-
 type MattermostAPI struct {
 	Login     *bridgev2.UserLogin
 	Connector *MattermostConnector
@@ -76,26 +72,26 @@ func (m *MattermostAPI) Connect(ctx context.Context) error {
 	if m.Login == nil {
 		return nil
 	}
-	
+
 	// Fetch our own user details to resolve UUID
 	user, _, err := m.Client.GetMe(ctx, "")
 	if err != nil {
 		return fmt.Errorf("failed to get own user details: %w", err)
 	}
-	
+
 	m.Connector.Bridge.Log.Info().Str("username", user.Username).Str("user_id", user.Id).Msg("Connected to Mattermost as")
-	
+
 	// Update metadata if needed
 	if m.Login.Metadata == nil {
 		m.Login.Metadata = make(map[string]any)
 	}
-	
+
 	meta, ok := m.Login.Metadata.(map[string]any)
 	if !ok {
 		// Should be a map, force reset if not
 		meta = make(map[string]any)
 	}
-	
+
 	if meta["mm_id"] != user.Id {
 		meta["mm_id"] = user.Id
 		m.Login.Metadata = meta
@@ -104,10 +100,9 @@ func (m *MattermostAPI) Connect(ctx context.Context) error {
 			m.Connector.Bridge.Log.Warn().Err(err).Msg("Failed to save login metadata")
 		}
 	}
-	
+
 	return nil
 }
-
 
 func (m *MattermostAPI) Disconnect() {
 }
@@ -122,7 +117,6 @@ func (m *MattermostAPI) GetCapabilities(ctx context.Context, portal *bridgev2.Po
 	}
 }
 
-
 func (m *MattermostAPI) GetChatInfo(ctx context.Context, portal *bridgev2.Portal) (*bridgev2.ChatInfo, error) {
 	// Try as channel first
 	channel, _, err := m.Client.GetChannel(ctx, string(portal.ID), "")
@@ -132,7 +126,7 @@ func (m *MattermostAPI) GetChatInfo(ctx context.Context, portal *bridgev2.Portal
 			Topic:   &channel.Purpose,
 			Members: &bridgev2.ChatMemberList{},
 		}
-		
+
 		if channel.Type == model.ChannelTypeOpen {
 			ci.Type = ptr.Ptr(database.RoomTypeDefault)
 			ci.ParentID = ptr.Ptr(networkid.PortalID(channel.TeamId))
@@ -141,9 +135,9 @@ func (m *MattermostAPI) GetChatInfo(ctx context.Context, portal *bridgev2.Portal
 			ci.ParentID = ptr.Ptr(networkid.PortalID(channel.TeamId))
 		} else if channel.Type == model.ChannelTypeDirect {
 			ci.Type = ptr.Ptr(database.RoomTypeDM)
-			// For DMs, name is often empty or just usernames. 
+			// For DMs, name is often empty or just usernames.
 			// We might want to clear name so bridge generates it from members.
-			ci.Name = nil 
+			ci.Name = nil
 			// We need to fetch members for DMs to work properly
 			members, _, err := m.Client.GetChannelMembers(ctx, channel.Id, 0, 10, "")
 			if err == nil {
@@ -161,10 +155,10 @@ func (m *MattermostAPI) GetChatInfo(ctx context.Context, portal *bridgev2.Portal
 		} else if channel.Type == model.ChannelTypeGroup {
 			ci.Type = ptr.Ptr(database.RoomTypeGroupDM)
 			ci.Name = nil // Let bridge generate
-             // Fetch members similar to DM
+			// Fetch members similar to DM
 			members, _, err := m.Client.GetChannelMembers(ctx, channel.Id, 0, 10, "")
 			if err == nil {
-                ci.Members.IsFull = true
+				ci.Members.IsFull = true
 				ci.Members.Members = make([]bridgev2.ChatMember, len(members))
 				for i, member := range members {
 					ci.Members.Members[i] = bridgev2.ChatMember{
@@ -181,15 +175,14 @@ func (m *MattermostAPI) GetChatInfo(ctx context.Context, portal *bridgev2.Portal
 	team, err := m.Client.GetTeam(ctx, string(portal.ID))
 	if err == nil {
 		return &bridgev2.ChatInfo{
-			Name: &team.DisplayName,
+			Name:  &team.DisplayName,
 			Topic: &team.Description,
-			Type: ptr.Ptr(database.RoomTypeSpace),
+			Type:  ptr.Ptr(database.RoomTypeSpace),
 		}, nil
 	}
 
 	return nil, fmt.Errorf("item not found (tried channel and team)")
 }
-
 
 func (m *MattermostAPI) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridgev2.UserInfo, error) {
 	user, _, err := m.Client.GetUser(ctx, m.getMMID(ctx, ghost.ID), "")
@@ -203,10 +196,11 @@ func (m *MattermostAPI) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) 
 	} else if user.Nickname != "" {
 		name = user.Nickname
 	}
+	m.Connector.Bridge.Log.Debug().Str("username", user.Username).Str("final_name", name).Msg("GetUserInfo returning name")
 	return &bridgev2.UserInfo{
 		Name: &name,
 		Avatar: &bridgev2.Avatar{
-			ID: networkid.AvatarID(fmt.Sprintf("%d", user.LastPictureUpdate)),
+			ID: networkid.AvatarID(fmt.Sprintf("%d-force", user.LastPictureUpdate)),
 			Get: func(ctx context.Context) ([]byte, error) {
 				data, _, err := m.Client.GetProfileImage(ctx, user.Id, "")
 				return data, err
@@ -244,7 +238,7 @@ func (m *MattermostAPI) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 
 	post.ChannelId = string(msg.Portal.ID)
 	// post.Message is already set by ToMattermost
-	
+
 	// Workaround: Strip "User: " prefix if added by bridge core (relay mode artifact)
 	// Matches "**User**: message"
 	if strings.HasPrefix(post.Message, "**") {
@@ -263,7 +257,7 @@ func (m *MattermostAPI) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 
 	// Get the sender's Matrix user ID
 	senderMXID := msg.Event.Sender
-	
+
 	// Get authenticated client for the ghost user and their MM ID
 	userClient, mmUserID, err := m.Connector.GetClientForUser(ctx, senderMXID.String())
 	if err != nil {
@@ -286,7 +280,7 @@ func (m *MattermostAPI) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 
 	// Set the post's UserId (though the token implies it)
 	post.UserId = mmUserID
-	
+
 	// Mark the post as coming from Matrix to prevent loops
 	if post.Props == nil {
 		post.Props = make(map[string]any)
@@ -309,18 +303,18 @@ func (m *MattermostAPI) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 func (m *MattermostAPI) ResolveIdentifier(ctx context.Context, identifier string, createChat bool) (*bridgev2.ResolveIdentifierResponse, error) {
 	var user *model.User
 	var err error
-	
+
 	// Check if identifier is an email
 	if strings.Contains(identifier, "@") {
 		user, err = m.Client.GetUserByEmail(ctx, identifier)
 	} else {
 		user, err = m.Client.GetUserByUsername(ctx, identifier)
 	}
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to find user by identifier %s: %w", identifier, err)
 	}
-	
+
 	// Ghost ID is now the Username for readability
 	ghostID := networkid.UserID(user.Username)
 	ghost, err := m.Connector.Bridge.GetGhostByID(ctx, ghostID)
@@ -339,7 +333,7 @@ func (m *MattermostAPI) ResolveIdentifier(ctx context.Context, identifier string
 			fmt.Printf("DEBUG: Failed to update ghost metadata: %v\n", err)
 		}
 	}
-	
+
 	var chatResp *bridgev2.CreateChatResponse
 	if createChat {
 		chatResp, err = m.CreateChatWithGhost(ctx, ghost)
@@ -347,8 +341,8 @@ func (m *MattermostAPI) ResolveIdentifier(ctx context.Context, identifier string
 			return nil, err
 		}
 	}
-	
-	// Create minimal UserInfo for response if needed, 
+
+	// Create minimal UserInfo for response if needed,
 	// typically bridgev2 handles updating ghost info if we return it?
 	// But ResolveIdentifierResponse has UserInfo field.
 	// We can use GetUserInfo to fill it.
@@ -356,7 +350,7 @@ func (m *MattermostAPI) ResolveIdentifier(ctx context.Context, identifier string
 	if err != nil {
 		// Log error but proceed?
 	}
-	
+
 	return &bridgev2.ResolveIdentifierResponse{
 		Ghost:    ghost,
 		UserID:   ghostID,
@@ -371,7 +365,7 @@ func (m *MattermostAPI) CreateChatWithGhost(ctx context.Context, ghost *bridgev2
 		return nil, bridgev2.ErrNotLoggedIn
 	}
 	myUserID := m.getOwnMMID()
-	
+
 	// Resolve otherUserID from the passed ghost object directly if possible
 	var otherUserID string
 	if ghost.Metadata != nil {
@@ -381,13 +375,13 @@ func (m *MattermostAPI) CreateChatWithGhost(ctx context.Context, ghost *bridgev2
 			}
 		}
 	}
-	
+
 	if otherUserID == "" {
 		otherUserID = m.getMMID(ctx, ghost.ID)
 	}
 
 	fmt.Printf("DEBUG: CreateDirectChannelWithBoth myID=%s otherID=%s ghostID=%s\n", myUserID, otherUserID, ghost.ID)
-	
+
 	// Ensure we don't pass the Matrix ID (username) if we failed to resolve UUID
 	if otherUserID == string(ghost.ID) && strings.Contains(otherUserID, "matrix_") {
 		// Try to resolve username to ID one last time
@@ -397,12 +391,12 @@ func (m *MattermostAPI) CreateChatWithGhost(ctx context.Context, ghost *bridgev2
 			fmt.Printf("DEBUG: Resolved username %s to UUID %s\n", string(ghost.ID), otherUserID)
 		}
 	}
-	
+
 	channel, err := m.Client.CreateDirectChannelWithBoth(ctx, myUserID, otherUserID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create direct channel: %w", err)
 	}
-	
+
 	// Wrap into PortalInfo
 	portalID := networkid.PortalID(channel.Id)
 
@@ -438,22 +432,22 @@ func (m *MattermostAPI) HandleMatrixEdit(ctx context.Context, edit *bridgev2.Mat
 	if edit.EditTarget == nil {
 		return fmt.Errorf("no edit target")
 	}
-	
+
 	// Get the post ID from the edit target
 	postID := string(edit.EditTarget.ID)
-	
+
 	// Fetch the existing post to update it
 	existingPost, _, err := m.Client.GetPost(ctx, postID, "")
 	if err != nil {
 		return fmt.Errorf("failed to get post for edit: %w", err)
 	}
-	
+
 	// Convert the new content
 	newPost, err := m.Connector.MsgConv.ToMattermost(ctx, m.Client, edit.Portal, edit.Content)
 	if err != nil {
 		return fmt.Errorf("failed to convert edit content: %w", err)
 	}
-	
+
 	// Ensure the post has the correct UserId (for ghost puppeting)
 	// Get the sender's Matrix user ID
 	senderMXID := edit.Event.Sender
@@ -463,16 +457,16 @@ func (m *MattermostAPI) HandleMatrixEdit(ctx context.Context, edit *bridgev2.Mat
 	}
 	mmUserID := m.getMMID(ctx, ghost.ID)
 	existingPost.UserId = mmUserID
-	
+
 	// Update the post message
 	existingPost.Message = newPost.Message
-	
+
 	// Update the post in Mattermost
 	_, _, err = m.Client.UpdatePost(ctx, postID, existingPost)
 	if err != nil {
 		return fmt.Errorf("failed to update post: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -481,16 +475,16 @@ func (m *MattermostAPI) HandleMatrixMessageRemove(ctx context.Context, remove *b
 	if remove.TargetMessage == nil {
 		return fmt.Errorf("no target message")
 	}
-	
+
 	// Get the post ID from the target message
 	postID := string(remove.TargetMessage.ID)
-	
+
 	// Delete the post in Mattermost
 	_, err := m.Client.DeletePost(ctx, postID)
 	if err != nil {
 		return fmt.Errorf("failed to delete post: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -499,9 +493,9 @@ func (m *MattermostAPI) HandleMatrixReaction(ctx context.Context, reaction *brid
 	if reaction.TargetMessage == nil {
 		return nil, fmt.Errorf("no target message")
 	}
-	
+
 	postID := string(reaction.TargetMessage.ID)
-	
+
 	// Get the emoji - bridgev2 provides the emoji via Content.RelatesTo.Key
 	emoji := reaction.Content.RelatesTo.Key
 	// Get the sender's Matrix user ID for ghost puppeting
@@ -510,19 +504,19 @@ func (m *MattermostAPI) HandleMatrixReaction(ctx context.Context, reaction *brid
 	if err != nil {
 		return nil, fmt.Errorf("failed to get client for ghost: %w", err)
 	}
-	
+
 	// Create the reaction in Mattermost
 	mmReaction := &model.Reaction{
 		UserId:    mmUserID,
 		PostId:    postID,
 		EmojiName: emoji, // Mattermost uses emoji names like "thumbsup"
 	}
-	
+
 	savedReaction, _, err := userClient.SaveReaction(ctx, mmReaction)
 	if err != nil {
 		return nil, fmt.Errorf("failed to save reaction: %w", err)
 	}
-	
+
 	return &database.Reaction{
 		EmojiID: networkid.EmojiID(savedReaction.EmojiName),
 		Emoji:   savedReaction.EmojiName,
@@ -534,18 +528,18 @@ func (m *MattermostAPI) HandleMatrixReactionRemove(ctx context.Context, reaction
 	if reaction.TargetReaction == nil {
 		return fmt.Errorf("no target reaction")
 	}
-	
+
 	// Get the post ID and emoji from the target reaction
 	postID := string(reaction.TargetReaction.MessageID)
 	emoji := string(reaction.TargetReaction.EmojiID)
-	
+
 	// Get the sender's Matrix user ID for ghost puppeting
 	senderMXID := reaction.Event.Sender
 	userClient, mmUserID, err := m.Connector.GetClientForUser(ctx, senderMXID.String())
 	if err != nil {
 		return fmt.Errorf("failed to get client for ghost: %w", err)
 	}
-	
+
 	// Delete the reaction in Mattermost
 	_, err = userClient.DeleteReaction(ctx, &model.Reaction{
 		UserId:    mmUserID,
@@ -555,7 +549,7 @@ func (m *MattermostAPI) HandleMatrixReactionRemove(ctx context.Context, reaction
 	if err != nil {
 		return fmt.Errorf("failed to delete reaction: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -566,11 +560,11 @@ func (m *MattermostAPI) FetchMessages(ctx context.Context, params bridgev2.Fetch
 	if count <= 0 {
 		count = 50
 	}
-	
+
 	// Get posts for channel
 	var postList *model.PostList
 	var err error
-	
+
 	if params.Forward {
 		// Forward backfill: get messages after the anchor
 		if params.AnchorMessage != nil {
@@ -589,29 +583,29 @@ func (m *MattermostAPI) FetchMessages(ctx context.Context, params bridgev2.Fetch
 			postList, _, err = m.Client.GetPostsForChannel(ctx, channelID, 0, count, "", false, false)
 		}
 	}
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to get posts for backfill: %w", err)
 	}
-	
+
 	// Convert posts to BackfillMessages
 	// Posts need to be in chronological order (oldest first)
 	messages := make([]*bridgev2.BackfillMessage, 0, len(postList.Order))
-	
+
 	// postList.Order is newest first, so process in reverse
 	for i := len(postList.Order) - 1; i >= 0; i-- {
 		postID := postList.Order[i]
 		post := postList.Posts[postID]
-		
+
 		// Skip system messages
 		if post.Type != "" && !strings.HasPrefix(post.Type, "custom_") {
 			continue
 		}
-		
+
 		// For backfill, we convert text directly without file uploads
 		// Files would require intent which we don't have here, so we just create text parts
 		converted := &bridgev2.ConvertedMessage{}
-		
+
 		// Handle text content
 		if post.Message != "" {
 			content := &event.MessageEventContent{
@@ -623,7 +617,7 @@ func (m *MattermostAPI) FetchMessages(ctx context.Context, params bridgev2.Fetch
 				Content: content,
 			})
 		}
-		
+
 		// Note: File attachments in backfill would need async handling
 		// For now, we add a note about attachments
 		if len(post.FileIds) > 0 && post.Message == "" {
@@ -636,11 +630,11 @@ func (m *MattermostAPI) FetchMessages(ctx context.Context, params bridgev2.Fetch
 				Content: content,
 			})
 		}
-		
+
 		if len(converted.Parts) == 0 {
 			continue
 		}
-		
+
 		// Build BackfillMessage
 		bfMsg := &bridgev2.BackfillMessage{
 			ConvertedMessage: converted,
@@ -650,13 +644,13 @@ func (m *MattermostAPI) FetchMessages(ctx context.Context, params bridgev2.Fetch
 			ID:        networkid.MessageID(post.Id),
 			Timestamp: time.UnixMilli(post.CreateAt),
 		}
-		
+
 		// Handle thread root
 		if post.RootId != "" {
 			rootID := networkid.MessageID(post.RootId)
 			bfMsg.ConvertedMessage.ThreadRoot = &rootID
 		}
-		
+
 		// Fetch reactions for this post
 		reactions, _, err := m.Client.GetReactions(ctx, post.Id)
 		if err == nil && len(reactions) > 0 {
@@ -672,13 +666,13 @@ func (m *MattermostAPI) FetchMessages(ctx context.Context, params bridgev2.Fetch
 				})
 			}
 		}
-		
+
 		messages = append(messages, bfMsg)
 	}
-	
+
 	// Determine if there are more messages
 	hasMore := len(postList.Order) >= count
-	
+
 	return &bridgev2.FetchMessagesResponse{
 		Messages: messages,
 		HasMore:  hasMore,
