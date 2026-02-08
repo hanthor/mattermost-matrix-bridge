@@ -56,6 +56,11 @@ func (m *MattermostConnector) HandleWebSocketEvent(event *model.WebSocketEvent) 
 		// Discard events from the bridge itself if necessary
 		// But bridgev2 handles some of this via SenderLogin/Sender
 
+		// Filter out system messages
+		if post.Type != "" && !strings.HasPrefix(post.Type, "custom_") {
+			return
+		}
+
 		evt := &MattermostMessageEvent{
 			MattermostEvent: MattermostEvent{
 				Connector: m,

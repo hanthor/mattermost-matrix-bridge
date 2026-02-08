@@ -62,9 +62,22 @@ func (m *MattermostAPI) UpdateGhost(ctx context.Context, ghost *bridgev2.Ghost) 
 
 		// Calculate hash and check if update is needed
 		hash := sha256.Sum256(data)
-		if hash == ghost.AvatarHash {
-			m.Connector.Bridge.Log.Debug().Str("mxid", string(ghost.ID)).Msg("Avatar hash matches, skipping update")
+
+		// Check if Mattermost actually has a profile picture
+		// If LastPictureUpdate is 0, it means no custom picture is set
+		var lastPictureUpdate int64
+		user, _, err := m.Client.GetUser(ctx, mmUserID, "")
+		if err == nil {
+			lastPictureUpdate = user.LastPictureUpdate
+		}
+
+		if hash == ghost.AvatarHash && lastPictureUpdate > 0 {
+			m.Connector.Bridge.Log.Debug().Str("mxid", string(ghost.ID)).Msg("Avatar hash matches and MM user has picture, skipping update")
 		} else {
+			if lastPictureUpdate == 0 {
+				m.Connector.Bridge.Log.Info().Str("mxid", string(ghost.ID)).Msg("Forcing avatar update because Mattermost user has no picture")
+			}
+
 			// Upload to Mattermost
 			_, err = m.Client.SetProfileImage(ctx, mmUserID, data)
 			if err != nil {

@@ -212,6 +212,7 @@ func (m *MattermostAPI) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) 
 		Str("nickname", user.Nickname).
 		Str("calc_fullname", fullName).
 		Str("final_name", name).
+		Int64("last_picture_update", user.LastPictureUpdate).
 		Msg("GetUserInfo name components")
 
 	return &bridgev2.UserInfo{
@@ -303,6 +304,23 @@ func (m *MattermostAPI) HandleMatrixMessage(ctx context.Context, msg *bridgev2.M
 		post.Props = make(map[string]any)
 	}
 	post.Props["from_matrix"] = true
+
+	// Ensure ghost is a member of the team and channel before posting
+	// This is needed for joined Matrix rooms where ghosts may not be members yet
+	channel, _, err := m.Client.GetChannel(ctx, post.ChannelId, "")
+	if err == nil && channel.TeamId != "" {
+		_, _, err = m.Client.AddTeamMember(ctx, channel.TeamId, mmUserID)
+		if err != nil {
+			// Log but don't fail - they might already be a member
+			m.Connector.Bridge.Log.Debug().Err(err).Str("team", channel.TeamId).Str("user", mmUserID).Msg("Could not add ghost to team (may already be member)")
+		}
+	}
+
+	_, _, err = m.Client.AddChannelMember(ctx, post.ChannelId, mmUserID)
+	if err != nil {
+		// Log but don't fail - they might already be a member
+		m.Connector.Bridge.Log.Debug().Err(err).Str("channel", post.ChannelId).Str("user", mmUserID).Msg("Could not add ghost to channel (may already be member)")
+	}
 
 	// Use the USER'S client to create the post
 	createdPost, _, err := userClient.CreatePost(ctx, post)

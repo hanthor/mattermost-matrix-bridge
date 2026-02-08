@@ -217,7 +217,116 @@ func (h *SlashCommandHandler) joinResponse(ctx context.Context, userID string, a
 		}
 	}
 
-	// Get any available login to perform the operation
+	// Check if Synapse Admin API is configured
+	if h.Connector.Config.SynapseAdmin.URL == "" || h.Connector.Config.SynapseAdmin.Token == "" {
+		return &SlashCommandResponse{
+			ResponseType: "ephemeral",
+			Text:         "❌ Synapse Admin API is not configured. Contact your administrator to enable this feature.",
+		}
+	}
+
+	// Create Matrix Admin client
+	admin := NewMatrixAdminClient(h.Connector.Config.SynapseAdmin.URL, h.Connector.Config.SynapseAdmin.Token)
+
+	// Get Mattermost user to generate Matrix ID
+	mmUser, _, err := h.Connector.Client.GetUser(ctx, userID, "")
+	if err != nil {
+		return &SlashCommandResponse{
+			ResponseType: "ephemeral",
+			Text:         fmt.Sprintf("❌ Failed to get your Mattermost user info: %v", err),
+		}
+	}
+
+	// Generate Matrix user ID from Mattermost username
+	serverName := h.Connector.Bridge.Matrix.ServerName()
+	matrixUserID := GenerateMatrixUserID(mmUser, serverName)
+
+	// Try to ensure Matrix user exists (create if needed)
+	// This is optional - if admin API isn't available or lacks permissions, we'll still try to join
+	if admin != nil {
+		exists, err := admin.UserExists(ctx, matrixUserID)
+		if err != nil {
+			// Admin API not working - log warning but continue
+			// The user might already exist, or the join will fail with a clear error
+			fmt.Printf("WARN: Cannot check if Matrix user exists (admin API issue): %v\n", err)
+			fmt.Printf("INFO: Will attempt to join anyway - if user doesn't exist, join will fail\n")
+		} else if !exists {
+			// Try to create Matrix account
+			displayName := mmUser.GetDisplayName(model.ShowFullName)
+			if displayName == "" {
+				displayName = mmUser.Username
+			}
+			password := GeneratePassword()
+
+			err = admin.CreateUser(ctx, matrixUserID, password, displayName)
+			if err != nil {
+				fmt.Printf("WARN: Failed to create Matrix user %s: %v\n", matrixUserID, err)
+				// Continue anyway - user might exist despite the check failing
+			} else {
+				fmt.Printf("INFO: Created Matrix user %s\n", matrixUserID)
+			}
+		}
+	}
+
+	// Resolve room alias to room ID if needed, capturing via servers for federation
+	var roomID id.RoomID
+	var viaServers []string
+	if strings.HasPrefix(roomIdentifier, "#") {
+		resolvedID, servers, err := admin.ResolveRoomAlias(ctx, roomIdentifier)
+		if err != nil {
+			return &SlashCommandResponse{
+				ResponseType: "ephemeral",
+				Text:         fmt.Sprintf("❌ Failed to resolve room alias `%s`: %v\n\nMake sure the room exists and is accessible.", roomIdentifier, err),
+			}
+		}
+		roomID = resolvedID
+		viaServers = servers
+		fmt.Printf("DEBUG: Resolved alias %s to room %s with via servers: %v\n", roomIdentifier, roomID, viaServers)
+	} else {
+		roomID = id.RoomID(roomIdentifier)
+		// Extract server from room ID for federation (e.g., !abc:matrix.org -> matrix.org)
+		parts := strings.SplitN(string(roomID), ":", 2)
+		if len(parts) == 2 {
+			viaServers = []string{parts[1]}
+		}
+	}
+
+	// Get room info to determine if public or private
+	roomInfo, err := admin.GetRoomInfo(ctx, roomID)
+	isPublic := true // Default to public
+	if err == nil && roomInfo != nil {
+		if joinRule, ok := roomInfo["join_rule"].(string); ok {
+			isPublic = (joinRule == "public")
+		}
+	}
+
+	// Get the ghost for this user so we can use their Matrix identity
+	ghost, err := h.Connector.Bridge.GetGhostByID(ctx, networkid.UserID(mmUser.Username))
+	if err != nil {
+		return &SlashCommandResponse{
+			ResponseType: "ephemeral",
+			Text:         fmt.Sprintf("❌ Failed to get Matrix ghost for user: %v\n\nYour Matrix account may not be set up. Try running `/matrix account` first.", err),
+		}
+	}
+
+	// Get the ghost's MXID
+	ghostMXID := ghost.Intent.GetMXID()
+	fmt.Printf("DEBUG: Attempting to join room %s as ghost %s with via servers: %v\n", roomID, ghostMXID, viaServers)
+
+	// Join the room using our custom federation-aware join method
+	err = admin.JoinRoomVia(ctx, ghostMXID, roomID, viaServers)
+	if err != nil {
+		fmt.Printf("ERROR: Failed to join room %s as %s: %v\n", roomID, ghostMXID, err)
+		return &SlashCommandResponse{
+			ResponseType: "ephemeral",
+			Text:         fmt.Sprintf("❌ Failed to join Matrix room: %v\n\nThe room may be invite-only or your Matrix account may not have access.", err),
+		}
+	}
+
+	// Generate Mattermost channel name
+	channelName := sanitizeChannelName(roomIdentifier)
+
+	// Get any available login for creating the portal and setting up relay
 	users := h.Connector.GetUsers()
 	if len(users) == 0 {
 		return &SlashCommandResponse{
@@ -227,62 +336,122 @@ func (h *SlashCommandHandler) joinResponse(ctx context.Context, userID string, a
 	}
 	login := users[0]
 
-	// Use the network API to get info about this room
-	api, ok := login.Client.(*MattermostAPI)
-	if !ok || api == nil {
+	// Create Mattermost channel
+	channelType := model.ChannelTypeOpen
+	if !isPublic {
+		channelType = model.ChannelTypePrivate
+	}
+
+	// Get user's team - we need to know which team to create the channel in
+	// For now, we'll get the first team the user is a member of
+	teams, err := h.Connector.Client.GetTeamsForUser(ctx, userID)
+	if err != nil || len(teams) == 0 {
 		return &SlashCommandResponse{
 			ResponseType: "ephemeral",
-			Text:         "❌ Bridge API not available.",
+			Text:         "❌ Could not find a team to create the channel in. Make sure you're a member of at least one team.",
+		}
+	}
+	teamID := teams[0].Id
+
+	newChannel := &model.Channel{
+		TeamId:      teamID,
+		Type:        channelType,
+		DisplayName: fmt.Sprintf("Matrix: %s", roomIdentifier),
+		Name:        channelName,
+		Purpose:     fmt.Sprintf("Bridged from Matrix room %s", roomID),
+	}
+
+	createdChannel, _, err := h.Connector.Client.CreateChannel(ctx, newChannel)
+	if err != nil {
+		// Channel might already exist, try to get it
+		existingChannel, _, err2 := h.Connector.Client.GetChannelByName(ctx, channelName, teamID, "")
+		if err2 == nil && existingChannel != nil {
+			createdChannel = existingChannel
+		} else {
+			return &SlashCommandResponse{
+				ResponseType: "ephemeral",
+				Text:         fmt.Sprintf("❌ Failed to create Mattermost channel: %v", err),
+			}
 		}
 	}
 
-	// For federated Matrix rooms, we need to:
-	// 1. Have the bridge bot join the room on Matrix side
-	// 2. Create a corresponding Mattermost channel
-	// 3. Set up the portal mapping
+	// Add the requesting user to the channel
+	_, _, err = h.Connector.Client.AddChannelMember(ctx, createdChannel.Id, userID)
+	if err != nil {
+		// Might already be a member, continue anyway
+		fmt.Printf("DEBUG: Failed to add user to channel (may already be member): %v\n", err)
+	}
 
-	// Create a portal key for this Matrix room
-	// Use the room identifier (alias or ID) as the portal ID
+	// Create portal mapping between Matrix room and Mattermost channel
 	portalKey := networkid.PortalKey{
-		ID: networkid.PortalID(roomIdentifier),
+		ID: networkid.PortalID(createdChannel.Id),
 	}
 
-	// Check if portal already exists
 	portal, err := h.Connector.Bridge.GetPortalByKey(ctx, portalKey)
-	if err == nil && portal != nil && portal.MXID != "" {
-		// Portal already exists, return link to the existing channel
+	if err != nil {
 		return &SlashCommandResponse{
 			ResponseType: "ephemeral",
-			Text:         fmt.Sprintf("✅ Room `%s` is already bridged!\n\n**Matrix Room**: `%s`", roomIdentifier, portal.MXID),
+			Text:         fmt.Sprintf("✅ Joined Matrix room and created channel, but failed to set up portal: %v", err),
 		}
 	}
 
-	// For now, we'll create a basic channel mapping
-	// In a full implementation, we'd use the bridge's Matrix client to join the room
-	// and then sync it back to Mattermost
-
-	// Create a Mattermost channel for this Matrix room
-	channelName := strings.TrimPrefix(roomIdentifier, "#")
-	channelName = strings.TrimPrefix(channelName, "!")
-	// Sanitize for Mattermost channel naming
-	channelName = strings.ReplaceAll(channelName, ":", "_")
-	channelName = strings.ReplaceAll(channelName, ".", "_")
-	channelName = "mx." + channelName
-
-	// Truncate if too long (Mattermost max is 64 chars)
-	if len(channelName) > 64 {
-		channelName = channelName[:64]
+	// If portal doesn't have an MXID yet, we need to set it
+	if portal.MXID == "" {
+		portal.MXID = roomID
+		// Save the portal
+		err = h.Connector.Bridge.DB.Portal.Update(ctx, portal.Portal)
+		if err != nil {
+			fmt.Printf("WARN: Failed to update portal MXID: %v\n", err)
+		}
 	}
+
+	// Set up relay mode so the Matrix ghost account relays messages from other users
+	// This is better than joining the bridge bot - the ghost can handle everything
+	err = portal.SetRelay(ctx, login)
+	if err != nil {
+		fmt.Printf("WARN: Failed to set relay for portal %s: %v\n", portal.MXID, err)
+		// Don't fail the command - basic bridging should still work
+	}
+
+	channelLink := fmt.Sprintf("/%s/channels/%s", teams[0].Name, createdChannel.Name)
 
 	return &SlashCommandResponse{
 		ResponseType: "ephemeral",
-		Text: fmt.Sprintf("🔄 **Joining Matrix room...**\n\n"+
-			"• **Room**: `%s`\n"+
-			"• **Channel**: `%s`\n\n"+
-			"The bridge bot will attempt to join this room. If successful, messages will be bridged to a new Mattermost channel.\n\n"+
-			"_Note: For federated rooms, the Matrix server must allow the bridge bot to join._",
-			roomIdentifier, channelName),
+		Text: fmt.Sprintf("✅ **Successfully joined Matrix room!**\n\n"+
+			"• **Matrix Room**: `%s`\n"+
+			"• **Matrix Account**: `%s`\n"+
+			"• **Mattermost Channel**: `%s` (%s)\n"+
+			"• **[Open Channel](%s)**\n\n"+
+			"Messages will now be bridged between the Matrix room and this Mattermost channel.",
+			roomID, matrixUserID, createdChannel.DisplayName,
+			map[bool]string{true: "public", false: "private"}[isPublic],
+			channelLink),
 	}
+}
+
+// sanitizeChannelName converts a Matrix room identifier to a valid Mattermost channel name
+func sanitizeChannelName(matrixRoomID string) string {
+	// Remove # or ! prefix
+	name := strings.TrimPrefix(matrixRoomID, "#")
+	name = strings.TrimPrefix(name, "!")
+
+	// Replace invalid characters
+	name = strings.ReplaceAll(name, ":", "_")
+	name = strings.ReplaceAll(name, ".", "_")
+	name = strings.ReplaceAll(name, " ", "-")
+
+	// Add prefix to indicate it's from Matrix
+	name = "mx_" + name
+
+	// Ensure lowercase (Mattermost requirement)
+	name = strings.ToLower(name)
+
+	// Truncate if too long (Mattermost max is 64 chars)
+	if len(name) > 64 {
+		name = name[:64]
+	}
+
+	return name
 }
 
 // dmResponse handles starting a DM with a Matrix user.
@@ -342,10 +511,10 @@ func (h *SlashCommandHandler) dmResponse(ctx context.Context, userID, teamDomain
 	} else {
 		meta = make(map[string]any)
 	}
-	
+
 	meta["mm_id"] = mmRecipientID
 	ghost.Metadata = meta
-	
+
 	// Persist the metadata
 	if ghost.Ghost != nil {
 		err = h.Connector.Bridge.DB.Ghost.Update(ctx, ghost.Ghost)
@@ -484,7 +653,7 @@ func (h *SlashCommandHandler) roomsResponse(ctx context.Context, userID string) 
 func (h *SlashCommandHandler) accountResponse(ctx context.Context, userID, userName string) *SlashCommandResponse {
 	// Get the homeserver domain from the bridge config
 	domain := h.Connector.Bridge.Matrix.ServerName()
-	
+
 	// Generate the Matrix user ID for this Mattermost user
 	matrixUserID := id.NewUserID(userName, string(domain))
 
@@ -527,7 +696,7 @@ func (h *SlashCommandHandler) accountResponse(ctx context.Context, userID, userN
 
 	// Account doesn't exist - create it
 	password := GeneratePassword()
-	
+
 	// Get the user's display name from Mattermost if possible
 	displayName := userName
 	if h.Connector.Client != nil {
@@ -561,7 +730,6 @@ func (h *SlashCommandHandler) accountResponse(ctx context.Context, userID, userN
 	}
 }
 
-
 // getOrProvisionGhost resolves a Matrix User ID to a Mattermost User ID.
 // If the user doesn't exist on Mattermost, it creates it.
 func (h *SlashCommandHandler) getOrProvisionGhost(ctx context.Context, mxid string) (string, error) {
@@ -571,7 +739,7 @@ func (h *SlashCommandHandler) getOrProvisionGhost(ctx context.Context, mxid stri
 	if err != nil {
 		return "", err
 	}
-	
+
 	// EnsureGhost returns the Mattermost User ID (UUID).
 	// We return this directly so callers can use it for ID-based API calls.
 	return userid, nil

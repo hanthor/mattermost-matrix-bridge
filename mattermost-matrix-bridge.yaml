@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mattermost-matrix-bridge
+  namespace: mautrix
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mattermost-matrix-bridge
+  template:
+    metadata:
+      labels:
+        app: mattermost-matrix-bridge
+    spec:
+      initContainers:
+        - name: init-config
+          image: busybox:latest
+          command: ["sh", "-c", "cat /config-ro/config.yaml > /data/config.yaml && cat /config-ro/registration.yaml > /data/registration.yaml"]
+          volumeMounts:
+            - name: config
+              mountPath: /config-ro
+            - name: data
+              mountPath: /data
+      containers:
+        - name: bridge
+          image: localhost/mautrix-mattermost:93240f3
+          imagePullPolicy: IfNotPresent
+          command: ["/usr/bin/mattermost-matrix-bridge", "-c", "/data/config.yaml", "-r", "/data/registration.yaml"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          env:
+            - name: MAUTRIX_HOMESERVER_DOMAIN
+              value: "lkofoss.club"
+            - name: MAUTRIX_APPSERVICE_ADDRESS
+              value: "http://mautrix-mattermost.mautrix.svc.cluster.local:8080"
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: mautrix-mattermost-pvc
+        - name: config
+          secret:
+            secretName: mautrix-mattermost-config
