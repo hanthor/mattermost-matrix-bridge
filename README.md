@@ -1,5 +1,16 @@
 # matrix-mattermost-bridge
 
+> **⛔ DEPRECATED — development has moved to
+> [mattermost-plugin-matrix-bridge](https://github.com/hanthor/mattermost-plugin-matrix-bridge).**
+>
+> The two projects were competing implementations of the same bridge. The plugin
+> is the more mature and better tested one: it runs inside Mattermost, is
+> covered by unit tests and a Complement end-to-end suite, and is where new
+> features (typing, presence, room state, permissions, deep integration on
+> both sides) land. This repository is kept for reference only and will not
+> receive further changes. Please file issues and pull requests against the
+> plugin.
+
 A Matrix-Mattermost bridge built on the [mautrix-go](https://github.com/mautrix/go) framework by Tulir Asokan.
 
 > **⚠️ PRE-RELEASE SOFTWARE**: This bridge is currently in active development. Direct Messages (DMs) have been fully tested and work reliably. Other features are functional but require further testing and refinement.
