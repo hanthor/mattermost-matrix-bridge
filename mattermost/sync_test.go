@@ -93,7 +93,7 @@ func (m *MockBridge) QueueRemoteEvent(login *bridgev2.UserLogin, evt bridgev2.Re
 // Helper to create a test SyncEngine with mocked dependencies
 func createTestSyncEngine() (*SyncEngine, *MockMattermostClient) {
 	mockClient := new(MockMattermostClient)
-	
+
 	connector := &MattermostConnector{
 		Config: &NetworkConfig{
 			Mode: ModeMirror,
@@ -108,7 +108,7 @@ func createTestSyncEngine() (*SyncEngine, *MockMattermostClient) {
 		},
 		users: make(map[networkid.UserLoginID]*bridgev2.UserLogin),
 	}
-	
+
 	engine := NewSyncEngine(connector)
 	return engine, mockClient
 }
@@ -119,9 +119,9 @@ func TestNewSyncEngine(t *testing.T) {
 			Mode: ModeMirror,
 		},
 	}
-	
+
 	engine := NewSyncEngine(connector)
-	
+
 	assert.NotNil(t, engine)
 	assert.Equal(t, connector, engine.Connector)
 	assert.NotNil(t, engine.syncedTeams)
@@ -151,7 +151,7 @@ func TestSyncEngine_IsMirrorMode(t *testing.T) {
 			expected: false,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			connector := &MattermostConnector{
@@ -159,7 +159,7 @@ func TestSyncEngine_IsMirrorMode(t *testing.T) {
 					Mode: tt.mode,
 				},
 			}
-			
+
 			assert.Equal(t, tt.expected, connector.IsMirrorMode())
 		})
 	}
@@ -167,13 +167,13 @@ func TestSyncEngine_IsMirrorMode(t *testing.T) {
 
 func TestSyncEngine_TeamTrackingPreventsduplicates(t *testing.T) {
 	engine, _ := createTestSyncEngine()
-	
+
 	team := &model.Team{
 		Id:          "team1",
 		Name:        "test-team",
 		DisplayName: "Test Team",
 	}
-	
+
 	// First sync should mark as synced
 	assert.False(t, engine.syncedTeams[team.Id])
 	engine.syncedTeams[team.Id] = true
@@ -182,14 +182,14 @@ func TestSyncEngine_TeamTrackingPreventsduplicates(t *testing.T) {
 
 func TestSyncEngine_ChannelTrackingPreventsHDuplicates(t *testing.T) {
 	engine, _ := createTestSyncEngine()
-	
+
 	channel := &model.Channel{
 		Id:          "channel1",
 		Name:        "test-channel",
 		DisplayName: "Test Channel",
 		Type:        model.ChannelTypeOpen,
 	}
-	
+
 	// First sync should mark as synced
 	assert.False(t, engine.syncedChannels[channel.Id])
 	engine.syncedChannels[channel.Id] = true
@@ -198,12 +198,12 @@ func TestSyncEngine_ChannelTrackingPreventsHDuplicates(t *testing.T) {
 
 func TestSyncEngine_UserTrackingPreventsDuplicates(t *testing.T) {
 	engine, _ := createTestSyncEngine()
-	
+
 	user := &model.User{
 		Id:       "user1",
 		Username: "testuser",
 	}
-	
+
 	assert.False(t, engine.syncedUsers[user.Id])
 	engine.syncedUsers[user.Id] = true
 	assert.True(t, engine.syncedUsers[user.Id])
@@ -216,7 +216,7 @@ func TestTeamSyncEvent_GetType(t *testing.T) {
 			DisplayName: "Test Team",
 		},
 	}
-	
+
 	assert.Equal(t, bridgev2.RemoteEventChatInfoChange, event.GetType())
 }
 
@@ -226,11 +226,11 @@ func TestTeamSyncEvent_GetChatInfoChange(t *testing.T) {
 		DisplayName: "Test Team",
 		Description: "A test team description",
 	}
-	
+
 	event := &TeamSyncEvent{Team: team}
-	
+
 	chatInfoChange, err := event.GetChatInfoChange(context.Background())
-	
+
 	assert.NoError(t, err)
 	assert.NotNil(t, chatInfoChange)
 	assert.Equal(t, "Test Team", *chatInfoChange.ChatInfo.Name)
@@ -244,7 +244,7 @@ func TestChannelSyncEvent_GetType(t *testing.T) {
 			DisplayName: "Test Channel",
 		},
 	}
-	
+
 	assert.Equal(t, bridgev2.RemoteEventChatInfoChange, event.GetType())
 }
 
@@ -254,11 +254,11 @@ func TestChannelSyncEvent_GetChatInfoChange(t *testing.T) {
 		DisplayName: "General",
 		Purpose:     "General discussion",
 	}
-	
+
 	event := &ChannelSyncEvent{Channel: channel}
-	
+
 	chatInfoChange, err := event.GetChatInfoChange(context.Background())
-	
+
 	assert.NoError(t, err)
 	assert.NotNil(t, chatInfoChange)
 	assert.Equal(t, "General", *chatInfoChange.ChatInfo.Name)
@@ -267,7 +267,7 @@ func TestChannelSyncEvent_GetChatInfoChange(t *testing.T) {
 
 func TestMirrorConfig_Defaults(t *testing.T) {
 	config := MirrorConfig{}
-	
+
 	// All bools should default to false
 	assert.False(t, config.SyncAllTeams)
 	assert.False(t, config.SyncAllChannels)
@@ -288,7 +288,7 @@ func TestMirrorConfig_WithValues(t *testing.T) {
 		SyncHistory:          true,
 		HistoryLimit:         500,
 	}
-	
+
 	assert.True(t, config.SyncAllTeams)
 	assert.True(t, config.SyncAllChannels)
 	assert.True(t, config.SyncAllUsers)
@@ -300,7 +300,7 @@ func TestMirrorConfig_WithValues(t *testing.T) {
 
 func TestSynapseAdminConfig_Empty(t *testing.T) {
 	config := SynapseAdminConfig{}
-	
+
 	assert.Empty(t, config.URL)
 	assert.Empty(t, config.Token)
 }
@@ -312,7 +312,7 @@ func TestBridgeMode_Constants(t *testing.T) {
 
 func TestSyncEngine_GetAnyLogin_Empty(t *testing.T) {
 	engine, _ := createTestSyncEngine()
-	
+
 	// With no users, should return nil
 	login := engine.getAnyLogin()
 	assert.Nil(t, login)
@@ -320,7 +320,7 @@ func TestSyncEngine_GetAnyLogin_Empty(t *testing.T) {
 
 func TestSyncEngine_GetAnyLogin_WithUsers(t *testing.T) {
 	engine, _ := createTestSyncEngine()
-	
+
 	// Add a user
 	login := &bridgev2.UserLogin{
 		UserLogin: &database.UserLogin{
@@ -328,7 +328,7 @@ func TestSyncEngine_GetAnyLogin_WithUsers(t *testing.T) {
 		},
 	}
 	engine.Connector.users[networkid.UserLoginID("user1")] = login
-	
+
 	// Should return the login
 	result := engine.getAnyLogin()
 	assert.NotNil(t, result)
@@ -339,20 +339,22 @@ func TestMattermostEvent_GetPortalKey(t *testing.T) {
 	event := MattermostEvent{
 		ChannelID: "channel123",
 	}
-	
+
 	key := event.GetPortalKey()
-	
+
 	assert.Equal(t, networkid.PortalID("channel123"), key.ID)
 	assert.Empty(t, key.Receiver)
 }
 
 func TestMattermostEvent_GetSender(t *testing.T) {
+	// Ghost IDs are keyed by Mattermost username, not the opaque user ID.
 	event := MattermostEvent{
-		UserID: "user456",
+		UserID:   "abc123",
+		Username: "user456",
 	}
-	
+
 	sender := event.GetSender()
-	
+
 	assert.Equal(t, networkid.UserID("user456"), sender.Sender)
 }
 
@@ -368,7 +370,7 @@ func TestMattermostMessageEvent_WithThreadRoot(t *testing.T) {
 		Content: "This is a reply",
 		RootID:  "root_post_id",
 	}
-	
+
 	assert.Equal(t, "root_post_id", event.RootID)
 	assert.Equal(t, "post123", event.PostID)
 }
@@ -383,7 +385,7 @@ func TestMattermostMessageEvent_WithoutThreadRoot(t *testing.T) {
 		Content: "This is a root post",
 		RootID:  "", // Empty = root post, not a reply
 	}
-	
+
 	assert.Empty(t, event.RootID)
 	assert.Equal(t, "post123", event.PostID)
 }
@@ -392,25 +394,25 @@ func TestMattermostMessageEvent_GetID(t *testing.T) {
 	event := &MattermostMessageEvent{
 		PostID: "post_abc123",
 	}
-	
+
 	assert.Equal(t, networkid.MessageID("post_abc123"), event.GetID())
 }
 
 func TestMattermostMessageEvent_GetType(t *testing.T) {
 	event := &MattermostMessageEvent{}
-	
+
 	assert.Equal(t, bridgev2.RemoteEventMessage, event.GetType())
 }
 
 func TestMattermostMessageEvent_ShouldCreatePortal(t *testing.T) {
 	event := &MattermostMessageEvent{}
-	
+
 	assert.True(t, event.ShouldCreatePortal())
 }
 
 func TestMattermostEditEvent_GetType(t *testing.T) {
 	event := &MattermostEditEvent{}
-	
+
 	assert.Equal(t, bridgev2.RemoteEventEdit, event.GetType())
 }
 
@@ -420,13 +422,13 @@ func TestMattermostEditEvent_GetTargetMessage(t *testing.T) {
 			PostID: "post_to_edit",
 		},
 	}
-	
+
 	assert.Equal(t, networkid.MessageID("post_to_edit"), event.GetTargetMessage())
 }
 
 func TestMattermostRemoveEvent_GetType(t *testing.T) {
 	event := &MattermostRemoveEvent{}
-	
+
 	assert.Equal(t, bridgev2.RemoteEventMessageRemove, event.GetType())
 }
 
@@ -434,7 +436,7 @@ func TestMattermostRemoveEvent_GetTargetMessage(t *testing.T) {
 	event := &MattermostRemoveEvent{
 		PostID: "post_to_delete",
 	}
-	
+
 	assert.Equal(t, networkid.MessageID("post_to_delete"), event.GetTargetMessage())
 }
 
@@ -442,7 +444,7 @@ func TestMattermostRemoveEvent_GetID(t *testing.T) {
 	event := &MattermostRemoveEvent{
 		PostID: "post_deleted",
 	}
-	
+
 	assert.Equal(t, networkid.MessageID("post_deleted"), event.GetID())
 }
 
@@ -454,7 +456,7 @@ func TestMattermostReactionEvent_GetType_Added(t *testing.T) {
 		EmojiName: "thumbsup",
 		Added:     true,
 	}
-	
+
 	assert.Equal(t, bridgev2.RemoteEventReaction, event.GetType())
 }
 
@@ -464,7 +466,7 @@ func TestMattermostReactionEvent_GetType_Removed(t *testing.T) {
 		EmojiName: "thumbsup",
 		Added:     false,
 	}
-	
+
 	assert.Equal(t, bridgev2.RemoteEventReactionRemove, event.GetType())
 }
 
@@ -473,7 +475,7 @@ func TestMattermostReactionEvent_GetTargetMessage(t *testing.T) {
 		PostID:    "post_with_reaction",
 		EmojiName: "heart",
 	}
-	
+
 	assert.Equal(t, networkid.MessageID("post_with_reaction"), event.GetTargetMessage())
 }
 
@@ -482,9 +484,9 @@ func TestMattermostReactionEvent_GetReactionEmoji(t *testing.T) {
 		PostID:    "post123",
 		EmojiName: "thumbsup",
 	}
-	
+
 	emoji, emojiID := event.GetReactionEmoji()
-	
+
 	assert.Equal(t, "thumbsup", emoji)
 	assert.Equal(t, networkid.EmojiID("thumbsup"), emojiID)
 }
@@ -493,6 +495,6 @@ func TestMattermostReactionEvent_GetRemovedEmojiID(t *testing.T) {
 	event := &MattermostReactionEvent{
 		EmojiName: "smile",
 	}
-	
+
 	assert.Equal(t, networkid.EmojiID("smile"), event.GetRemovedEmojiID())
 }

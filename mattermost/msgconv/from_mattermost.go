@@ -23,7 +23,7 @@ func (mc *MessageConverter) ToMatrix(
 ) *bridgev2.ConvertedMessage {
 	ctx = context.WithValue(ctx, contextKeyPortal, portal)
 	ctx = context.WithValue(ctx, contextKeySource, source)
-	
+
 	output := &bridgev2.ConvertedMessage{}
 
 	// Handle Reply
@@ -89,7 +89,7 @@ func (mc *MessageConverter) fileToMatrix(
 			return nil
 		}
 	}
-	
+
 	// Determine filename and mime type
 	var fileName, mimeType string
 	if fileInfo != nil {
@@ -126,7 +126,7 @@ func (mc *MessageConverter) fileToMatrix(
 			Size:     len(data),
 		},
 	}
-	
+
 	// Add image dimensions if available
 	if fileInfo != nil && (mimeType == "image/jpeg" || mimeType == "image/png" || mimeType == "image/gif" || strings.HasPrefix(mimeType, "image/")) {
 		if fileInfo.Width > 0 && fileInfo.Height > 0 {
@@ -134,7 +134,7 @@ func (mc *MessageConverter) fileToMatrix(
 			content.Info.Height = fileInfo.Height
 		}
 	}
-	
+
 	if file != nil {
 		content.File = file
 	} else {

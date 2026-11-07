@@ -68,7 +68,7 @@ func (c *Client) GetTeam(ctx context.Context, teamID string) (*model.Team, error
 func (c *Client) CreateDirectChannel(ctx context.Context, otherUserID string) (*model.Channel, error) {
 	// The first argument is the "other" user ID. The client's own ID is inferred by the server or we might need to pass it?
 	// Client4.CreateDirectChannel takes (userId1, userId2).
-	// We need the current user's ID. 
+	// We need the current user's ID.
 	// The wrapper `Client` doesn't strictly store its own ID, but `Connect` fetches "Me".
 	// Maybe we should store "Me" in `Client`.
 	// Or we just pass both IDs.
@@ -104,13 +104,13 @@ func (c *Client) GetFileWithInfo(ctx context.Context, fileID string) ([]byte, *m
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get file info: %w", err)
 	}
-	
+
 	// Get file content
 	data, _, err := c.Client4.GetFile(ctx, fileID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get file: %w", err)
 	}
-	
+
 	return data, info, nil
 }
 

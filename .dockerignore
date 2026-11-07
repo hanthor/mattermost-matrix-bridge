@@ -1,0 +1,12 @@
+.git
+.github
+*.db
+*.db-shm
+*.db-wal
+*.log
+/mattermost-matrix-bridge
+config.yaml
+registration.yaml
+synapse-data/
+postgres_data/
+postgres_mm_data/

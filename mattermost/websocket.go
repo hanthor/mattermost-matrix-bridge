@@ -2,7 +2,6 @@ package mattermost
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
@@ -18,7 +17,7 @@ func (m *MattermostConnector) StartWebSocket() {
 	// Connect to WebSocket
 	wsClient, err := model.NewWebSocketClient4(wsURL, m.Client.AdminToken)
 	if err != nil {
-		fmt.Printf("Failed to create WebSocket client: %v\n", err)
+		m.Bridge.Log.Error().Msgf("Failed to create WebSocket client: %v", err)
 		return
 	}
 	m.WSClient = wsClient
@@ -31,9 +30,9 @@ func (m *MattermostConnector) StartWebSocket() {
 				if !ok {
 					return
 				}
-				fmt.Printf("DEBUG: Received websocket event: %s\n", event.EventType())
+				m.Bridge.Log.Debug().Msgf("Received websocket event: %s", event.EventType())
 				m.HandleWebSocketEvent(event)
-			case _ = <-m.WSClient.ResponseChannel:
+			case <-m.WSClient.ResponseChannel:
 				// Handle responses if needed
 			}
 		}
@@ -81,7 +80,7 @@ func (m *MattermostConnector) HandleWebSocketEvent(event *model.WebSocketEvent) 
 
 		// Dispatch to logins
 		logins := m.GetUsers()
-		fmt.Printf("DEBUG: Found %d logins for event\n", len(logins))
+		m.Bridge.Log.Debug().Msgf("Found %d logins for event", len(logins))
 		if m.IsMirrorMode() {
 			// In mirror mode, any login can process the event
 			if len(logins) > 0 {
@@ -256,7 +255,7 @@ func (m *MattermostConnector) HandleWebSocketEvent(event *model.WebSocketEvent) 
 					info, err := api.GetUserInfo(m.ctx, ghost)
 					if err == nil {
 						ghost.UpdateInfo(m.ctx, info)
-						fmt.Printf("INFO: Syncing profile for updated user %s\n", user.Username)
+						m.Bridge.Log.Info().Msgf("Syncing profile for updated user %s", user.Username)
 					}
 				}
 			}

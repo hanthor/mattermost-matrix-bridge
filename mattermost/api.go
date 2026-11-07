@@ -365,7 +365,7 @@ func (m *MattermostAPI) ResolveIdentifier(ctx context.Context, identifier string
 		meta["mm_id"] = user.Id
 		err = m.Connector.Bridge.DB.Ghost.Update(ctx, ghost.Ghost)
 		if err != nil {
-			fmt.Printf("DEBUG: Failed to update ghost metadata: %v\n", err)
+			m.Connector.Bridge.Log.Debug().Msgf("Failed to update ghost metadata: %v", err)
 		}
 	}
 
@@ -415,7 +415,7 @@ func (m *MattermostAPI) CreateChatWithGhost(ctx context.Context, ghost *bridgev2
 		otherUserID = m.getMMID(ctx, ghost.ID)
 	}
 
-	fmt.Printf("DEBUG: CreateDirectChannelWithBoth myID=%s otherID=%s ghostID=%s\n", myUserID, otherUserID, ghost.ID)
+	m.Connector.Bridge.Log.Debug().Msgf("CreateDirectChannelWithBoth myID=%s otherID=%s ghostID=%s", myUserID, otherUserID, ghost.ID)
 
 	// Ensure we don't pass the Matrix ID (username) if we failed to resolve UUID
 	if otherUserID == string(ghost.ID) && strings.Contains(otherUserID, "matrix_") {
@@ -423,7 +423,7 @@ func (m *MattermostAPI) CreateChatWithGhost(ctx context.Context, ghost *bridgev2
 		user, err := m.Client.GetUserByUsername(ctx, otherUserID)
 		if err == nil && user != nil {
 			otherUserID = user.Id
-			fmt.Printf("DEBUG: Resolved username %s to UUID %s\n", string(ghost.ID), otherUserID)
+			m.Connector.Bridge.Log.Debug().Msgf("Resolved username %s to UUID %s", string(ghost.ID), otherUserID)
 		}
 	}
 

@@ -29,7 +29,7 @@ func TestSlashCommandHandler_Help(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/mattermost/command", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	
+
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
@@ -52,7 +52,7 @@ func TestSlashCommandHandler_InvalidToken(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/mattermost/command", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	
+
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
@@ -73,7 +73,7 @@ func TestSlashCommandHandler_Status(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/mattermost/command", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	
+
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 

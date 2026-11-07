@@ -37,18 +37,18 @@ func (m *MattermostConnector) startMirrorSync(ctx context.Context) {
 	engine := NewSyncEngine(m)
 
 	if err := engine.SyncAll(ctx); err != nil {
-		fmt.Printf("ERROR: Mirror sync failed: %v\n", err)
+		m.Bridge.Log.Error().Msgf("Mirror sync failed: %v", err)
 	}
 }
 
 // SyncAll performs a full synchronization of the Mattermost server to Matrix
 func (s *SyncEngine) SyncAll(ctx context.Context) error {
-	fmt.Printf("INFO: Starting full server sync...\n")
+	s.Connector.Bridge.Log.Info().Msg("Starting full server sync...")
 
 	// First sync users so ghosts exist for channel members
 	if s.Connector.Config.Mirror.SyncAllUsers {
 		if err := s.SyncUsers(ctx); err != nil {
-			fmt.Printf("WARN: Failed to sync users: %v\n", err)
+			s.Connector.Bridge.Log.Warn().Msgf("Failed to sync users: %v", err)
 			// Continue anyway - ghosts will be created on demand
 		}
 	}
@@ -63,17 +63,17 @@ func (s *SyncEngine) SyncAll(ctx context.Context) error {
 	// Backfill history for all synced channels
 	if s.Connector.Config.Mirror.SyncHistory {
 		if err := s.BackfillAllChannels(ctx); err != nil {
-			fmt.Printf("WARN: Failed to backfill channels: %v\n", err)
+			s.Connector.Bridge.Log.Warn().Msgf("Failed to backfill channels: %v", err)
 		}
 	}
 
-	fmt.Printf("INFO: Full server sync complete\n")
+	s.Connector.Bridge.Log.Info().Msg("Full server sync complete")
 	return nil
 }
 
 // SyncTeams synchronizes all Mattermost teams to Matrix Spaces
 func (s *SyncEngine) SyncTeams(ctx context.Context) error {
-	fmt.Printf("INFO: Syncing teams...\n")
+	s.Connector.Bridge.Log.Info().Msg("Syncing teams...")
 
 	// Get all teams from Mattermost
 	teams, _, err := s.Connector.Client.GetAllTeams(ctx, "", 0, 100)
@@ -81,11 +81,11 @@ func (s *SyncEngine) SyncTeams(ctx context.Context) error {
 		return fmt.Errorf("failed to get teams: %w", err)
 	}
 
-	fmt.Printf("INFO: Found %d teams to sync\n", len(teams))
+	s.Connector.Bridge.Log.Info().Msgf("Found %d teams to sync", len(teams))
 
 	for _, team := range teams {
 		if err := s.SyncTeam(ctx, team); err != nil {
-			fmt.Printf("WARN: Failed to sync team %s: %v\n", team.Name, err)
+			s.Connector.Bridge.Log.Warn().Msgf("Failed to sync team %s: %v", team.Name, err)
 			continue
 		}
 	}
@@ -99,7 +99,7 @@ func (s *SyncEngine) SyncTeam(ctx context.Context, team *model.Team) error {
 		return nil // Already synced
 	}
 
-	fmt.Printf("INFO: Syncing team: %s (%s)\n", team.DisplayName, team.Id)
+	s.Connector.Bridge.Log.Info().Msgf("Syncing team: %s (%s)", team.DisplayName, team.Id)
 
 	// Create portal for team (as Space)
 	portalKey := networkid.PortalKey{
@@ -120,7 +120,7 @@ func (s *SyncEngine) SyncTeam(ctx context.Context, team *model.Team) error {
 
 	if portal.MXID == "" {
 		// Portal doesn't exist in Matrix yet - create it
-		fmt.Printf("INFO: Creating Matrix Space for team: %s\n", team.DisplayName)
+		s.Connector.Bridge.Log.Info().Msgf("Creating Matrix Space for team: %s", team.DisplayName)
 
 		// Create a synthetic event to trigger room creation
 		evt := &TeamSyncEvent{
@@ -142,14 +142,14 @@ func (s *SyncEngine) SyncTeam(ctx context.Context, team *model.Team) error {
 	// Sync channels in this team
 	if s.Connector.Config.Mirror.SyncAllChannels {
 		if err := s.SyncChannels(ctx, team.Id); err != nil {
-			fmt.Printf("WARN: Failed to sync channels for team %s: %v\n", team.Name, err)
+			s.Connector.Bridge.Log.Warn().Msgf("Failed to sync channels for team %s: %v", team.Name, err)
 		}
 	}
 
 	// Sync team memberships - join all team members to the Matrix Space
 	if portal.MXID != "" {
 		if err := s.SyncTeamMemberships(ctx, team.Id, portal); err != nil {
-			fmt.Printf("WARN: Failed to sync team memberships for %s: %v\n", team.Name, err)
+			s.Connector.Bridge.Log.Warn().Msgf("Failed to sync team memberships for %s: %v", team.Name, err)
 		}
 	}
 
@@ -158,7 +158,7 @@ func (s *SyncEngine) SyncTeam(ctx context.Context, team *model.Team) error {
 
 // SyncChannels synchronizes all channels in a team
 func (s *SyncEngine) SyncChannels(ctx context.Context, teamID string) error {
-	fmt.Printf("INFO: Syncing channels for team %s...\n", teamID)
+	s.Connector.Bridge.Log.Info().Msgf("Syncing channels for team %s...", teamID)
 
 	// Get public channels
 	publicChannels, _, err := s.Connector.Client.GetPublicChannelsForTeam(ctx, teamID, 0, 200, "")
@@ -169,16 +169,16 @@ func (s *SyncEngine) SyncChannels(ctx context.Context, teamID string) error {
 	// Get private channels (requires admin)
 	privateChannels, _, err := s.Connector.Client.GetPrivateChannelsForTeam(ctx, teamID, 0, 200, "")
 	if err != nil {
-		fmt.Printf("WARN: Failed to get private channels (may need admin): %v\n", err)
+		s.Connector.Bridge.Log.Warn().Msgf("Failed to get private channels (may need admin): %v", err)
 		privateChannels = []*model.Channel{}
 	}
 
 	allChannels := append(publicChannels, privateChannels...)
-	fmt.Printf("INFO: Found %d channels to sync in team %s\n", len(allChannels), teamID)
+	s.Connector.Bridge.Log.Info().Msgf("Found %d channels to sync in team %s", len(allChannels), teamID)
 
 	for _, channel := range allChannels {
 		if err := s.SyncChannel(ctx, channel); err != nil {
-			fmt.Printf("WARN: Failed to sync channel %s: %v\n", channel.Name, err)
+			s.Connector.Bridge.Log.Warn().Msgf("Failed to sync channel %s: %v", channel.Name, err)
 			continue
 		}
 	}
@@ -197,7 +197,7 @@ func (s *SyncEngine) SyncChannel(ctx context.Context, channel *model.Channel) er
 		return nil
 	}
 
-	fmt.Printf("INFO: Syncing channel: %s (%s)\n", channel.DisplayName, channel.Id)
+	s.Connector.Bridge.Log.Info().Msgf("Syncing channel: %s (%s)", channel.DisplayName, channel.Id)
 
 	// Create portal for channel
 	portalKey := networkid.PortalKey{
@@ -216,7 +216,7 @@ func (s *SyncEngine) SyncChannel(ctx context.Context, channel *model.Channel) er
 	}
 
 	if portal.MXID == "" {
-		fmt.Printf("INFO: Creating Matrix room for channel: %s\n", channel.DisplayName)
+		s.Connector.Bridge.Log.Info().Msgf("Creating Matrix room for channel: %s", channel.DisplayName)
 
 		// Create a synthetic event to trigger room creation
 		evt := &ChannelSyncEvent{
@@ -235,7 +235,7 @@ func (s *SyncEngine) SyncChannel(ctx context.Context, channel *model.Channel) er
 	// Auto-invite users if configured
 	if s.Connector.Config.Mirror.AutoInviteUsers && portal.MXID != "" {
 		if err := s.inviteChannelMembers(ctx, channel.Id, portal); err != nil {
-			fmt.Printf("WARN: Failed to invite members to channel %s: %v\n", channel.Name, err)
+			s.Connector.Bridge.Log.Warn().Msgf("Failed to invite members to channel %s: %v", channel.Name, err)
 		}
 	}
 
@@ -245,7 +245,7 @@ func (s *SyncEngine) SyncChannel(ctx context.Context, channel *model.Channel) er
 
 // SyncUsers synchronizes all Mattermost users to Matrix ghosts
 func (s *SyncEngine) SyncUsers(ctx context.Context) error {
-	fmt.Printf("INFO: Syncing users...\\n")
+	s.Connector.Bridge.Log.Info().Msg("Syncing users...")
 
 	page := 0
 	perPage := 200
@@ -262,21 +262,21 @@ func (s *SyncEngine) SyncUsers(ctx context.Context) error {
 	}
 
 	for {
-		fmt.Printf("DEBUG: Fetching users page %d...\n", page)
+		s.Connector.Bridge.Log.Debug().Msgf("Fetching users page %d...", page)
 		users, _, err := s.Connector.Client.GetUsers(ctx, page, perPage, "")
 		if err != nil {
 			return fmt.Errorf("failed to get users page %d: %w", page, err)
 		}
 
-		fmt.Printf("DEBUG: Got %d users on page %d\n", len(users), page)
+		s.Connector.Bridge.Log.Debug().Msgf("Got %d users on page %d", len(users), page)
 		if len(users) == 0 {
 			break
 		}
 
 		for _, user := range users {
-			fmt.Printf("DEBUG: Processing user %s (ID: %s)\\n", user.Username, user.Id)
+			s.Connector.Bridge.Log.Debug().Msgf("Processing user %s (ID: %s)", user.Username, user.Id)
 			if s.syncedUsers[user.Id] {
-				fmt.Printf("DEBUG: User %s already synced, skipping\\n", user.Username)
+				s.Connector.Bridge.Log.Debug().Msgf("User %s already synced, skipping", user.Username)
 				continue
 			}
 
@@ -284,7 +284,7 @@ func (s *SyncEngine) SyncUsers(ctx context.Context) error {
 			ghostID := networkid.UserID(user.Username)
 			ghost, err := s.Connector.Bridge.GetGhostByID(ctx, ghostID)
 			if err != nil {
-				fmt.Printf("WARN: Failed to get/create ghost for user %s: %v\n", user.Username, err)
+				s.Connector.Bridge.Log.Warn().Msgf("Failed to get/create ghost for user %s: %v", user.Username, err)
 				continue
 			}
 			// Store UUID in metadata for API stability
@@ -296,29 +296,29 @@ func (s *SyncEngine) SyncUsers(ctx context.Context) error {
 				meta["mm_id"] = user.Id
 				err = s.Connector.Bridge.DB.Ghost.Update(ctx, ghost.Ghost)
 				if err != nil {
-					fmt.Printf("WARN: Failed to update ghost metadata for %s: %v\n", user.Username, err)
+					s.Connector.Bridge.Log.Warn().Msgf("Failed to update ghost metadata for %s: %v", user.Username, err)
 				}
 			}
 
 			// Update ghost info (profile and avatar) from Mattermost to Matrix
-			fmt.Printf("DEBUG: About to sync profile for user %s\n", user.Username)
+			s.Connector.Bridge.Log.Debug().Msgf("About to sync profile for user %s", user.Username)
 			login := s.getAnyLogin()
 			if login == nil {
-				fmt.Printf("DEBUG: No login available for profile sync\n")
+				s.Connector.Bridge.Log.Debug().Msg("No login available for profile sync")
 			} else if login.Client == nil {
-				fmt.Printf("DEBUG: Login client is nil for profile sync\n")
+				s.Connector.Bridge.Log.Debug().Msg("Login client is nil for profile sync")
 			} else if api, ok := login.Client.(*MattermostAPI); ok {
-				fmt.Printf("DEBUG: Calling GetUserInfo for user %s\n", user.Username)
+				s.Connector.Bridge.Log.Debug().Msgf("Calling GetUserInfo for user %s", user.Username)
 				info, err := api.GetUserInfo(ctx, ghost)
 				if err != nil {
-					fmt.Printf("WARN: Failed to get user info for %s: %v\n", user.Username, err)
+					s.Connector.Bridge.Log.Warn().Msgf("Failed to get user info for %s: %v", user.Username, err)
 				} else {
-					fmt.Printf("DEBUG: Got user info for %s, calling UpdateInfo\n", user.Username)
+					s.Connector.Bridge.Log.Debug().Msgf("Got user info for %s, calling UpdateInfo", user.Username)
 					ghost.UpdateInfo(ctx, info)
-					fmt.Printf("DEBUG: UpdateInfo completed for %s\n", user.Username)
+					s.Connector.Bridge.Log.Debug().Msgf("UpdateInfo completed for %s", user.Username)
 				}
 			} else {
-				fmt.Printf("DEBUG: Login client is not MattermostAPI\n")
+				s.Connector.Bridge.Log.Debug().Msg("Login client is not MattermostAPI")
 			}
 
 			// Optionally create a real Matrix account for the user
@@ -338,7 +338,7 @@ func (s *SyncEngine) SyncUsers(ctx context.Context) error {
 		}
 	}
 
-	fmt.Printf("INFO: Synced %d users, created %d Matrix accounts\\n", totalUsers, createdMatrixUsers)
+	s.Connector.Bridge.Log.Info().Msgf("Synced %d users, created %d Matrix accounts", totalUsers, createdMatrixUsers)
 	return nil
 }
 
@@ -350,7 +350,7 @@ func (s *SyncEngine) CreateMatrixUserIfNeeded(ctx context.Context, admin *Matrix
 	// Check if user already exists
 	exists, err := admin.UserExists(ctx, mxid)
 	if err != nil {
-		fmt.Printf("WARN: Failed to check if Matrix user exists for %s: %v\\n", mmUser.Username, err)
+		s.Connector.Bridge.Log.Warn().Msgf("Failed to check if Matrix user exists for %s: %v", mmUser.Username, err)
 		return false
 	}
 
@@ -372,17 +372,17 @@ func (s *SyncEngine) CreateMatrixUserIfNeeded(ctx context.Context, admin *Matrix
 	password := GeneratePassword()
 
 	if err := admin.CreateUser(ctx, mxid, password, displayName); err != nil {
-		fmt.Printf("WARN: Failed to create Matrix user for %s: %v\\n", mmUser.Username, err)
+		s.Connector.Bridge.Log.Warn().Msgf("Failed to create Matrix user for %s: %v", mmUser.Username, err)
 		return false
 	}
 
-	fmt.Printf("INFO: Created Matrix user %s for Mattermost user %s\\n", mxid, mmUser.Username)
+	s.Connector.Bridge.Log.Info().Msgf("Created Matrix user %s for Mattermost user %s", mxid, mmUser.Username)
 	return true
 }
 
 // SyncHistoricalMessages syncs message history for a channel
 func (s *SyncEngine) SyncHistoricalMessages(ctx context.Context, channelID string, limit int) error {
-	fmt.Printf("INFO: Syncing history for channel %s (limit: %d)...\n", channelID, limit)
+	s.Connector.Bridge.Log.Info().Msgf("Syncing history for channel %s (limit: %d)...", channelID, limit)
 
 	if limit == 0 {
 		limit = s.Connector.Config.Mirror.HistoryLimit
@@ -402,7 +402,7 @@ func (s *SyncEngine) SyncHistoricalMessages(ctx context.Context, channelID strin
 		return fmt.Errorf("failed to get posts: %w", err)
 	}
 
-	fmt.Printf("INFO: Found %d posts to backfill\n", len(postList.Posts))
+	s.Connector.Bridge.Log.Info().Msgf("Found %d posts to backfill", len(postList.Posts))
 
 	// Posts need to be processed in order (oldest first)
 	// postList.Order is newest first, so reverse it
@@ -435,13 +435,13 @@ func (s *SyncEngine) SyncHistoricalMessages(ctx context.Context, channelID strin
 		syncedCount++
 	}
 
-	fmt.Printf("INFO: Queued %d historical messages for channel %s\n", syncedCount, channelID)
+	s.Connector.Bridge.Log.Info().Msgf("Queued %d historical messages for channel %s", syncedCount, channelID)
 	return nil
 }
 
 // BackfillChannel performs a complete backfill of a channel including messages and members
 func (s *SyncEngine) BackfillChannel(ctx context.Context, channelID string) error {
-	fmt.Printf("INFO: Starting full backfill for channel %s\n", channelID)
+	s.Connector.Bridge.Log.Info().Msgf("Starting full backfill for channel %s", channelID)
 
 	// Get portal for channel
 	portalKey := networkid.PortalKey{
@@ -455,13 +455,13 @@ func (s *SyncEngine) BackfillChannel(ctx context.Context, channelID string) erro
 
 	// Sync channel memberships first
 	if err := s.SyncChannelMemberships(ctx, channelID, portal); err != nil {
-		fmt.Printf("WARN: Failed to sync memberships for channel %s: %v\n", channelID, err)
+		s.Connector.Bridge.Log.Warn().Msgf("Failed to sync memberships for channel %s: %v", channelID, err)
 	}
 
 	// Then backfill historical messages
 	if s.Connector.Config.Mirror.SyncHistory {
 		if err := s.SyncHistoricalMessages(ctx, channelID, 0); err != nil {
-			fmt.Printf("WARN: Failed to backfill messages for channel %s: %v\n", channelID, err)
+			s.Connector.Bridge.Log.Warn().Msgf("Failed to backfill messages for channel %s: %v", channelID, err)
 		}
 	}
 
@@ -475,7 +475,7 @@ func (s *SyncEngine) SyncChannelMemberships(ctx context.Context, channelID strin
 		return fmt.Errorf("failed to get channel members: %w", err)
 	}
 
-	fmt.Printf("INFO: Syncing %d members for channel %s\n", len(members), channelID)
+	s.Connector.Bridge.Log.Info().Msgf("Syncing %d members for channel %s", len(members), channelID)
 
 	// Create Matrix Admin client if available for direct room joins
 	var matrixAdmin *MatrixAdminClient
@@ -493,7 +493,7 @@ func (s *SyncEngine) SyncChannelMemberships(ctx context.Context, channelID strin
 		// Get Mattermost user info
 		user, _, err := s.Connector.Client.GetUser(ctx, member.UserId, "")
 		if err != nil {
-			fmt.Printf("WARN: Failed to get user %s: %v\n", member.UserId, err)
+			s.Connector.Bridge.Log.Warn().Msgf("Failed to get user %s: %v", member.UserId, err)
 			continue
 		}
 
@@ -501,7 +501,7 @@ func (s *SyncEngine) SyncChannelMemberships(ctx context.Context, channelID strin
 		ghostID := networkid.UserID(user.Username)
 		ghost, err := s.Connector.Bridge.GetGhostByID(ctx, ghostID)
 		if err != nil {
-			fmt.Printf("WARN: Failed to get ghost for user %s: %v\n", user.Username, err)
+			s.Connector.Bridge.Log.Warn().Msgf("Failed to get ghost for user %s: %v", user.Username, err)
 			continue
 		}
 		// Store UUID in metadata for API stability
@@ -513,7 +513,7 @@ func (s *SyncEngine) SyncChannelMemberships(ctx context.Context, channelID strin
 			meta["mm_id"] = user.Id
 			err = s.Connector.Bridge.DB.Ghost.Update(ctx, ghost.Ghost)
 			if err != nil {
-				fmt.Printf("DEBUG: Failed to update ghost metadata: %v\n", err)
+				s.Connector.Bridge.Log.Debug().Msgf("Failed to update ghost metadata: %v", err)
 			}
 		}
 
@@ -522,31 +522,31 @@ func (s *SyncEngine) SyncChannelMemberships(ctx context.Context, channelID strin
 		if matrixAdmin != nil && s.Connector.Config.Mirror.CreateMatrixAccounts {
 			mxid := GenerateMatrixUserID(user, serverName)
 			if err := matrixAdmin.JoinUserToRoom(ctx, mxid, portal.MXID); err != nil {
-				fmt.Printf("DEBUG: Could not join %s to %s: %v\n", mxid, portal.MXID, err)
+				s.Connector.Bridge.Log.Debug().Msgf("Could not join %s to %s: %v", mxid, portal.MXID, err)
 			} else {
 				joinedCount++
 			}
 		}
 	}
 
-	fmt.Printf("INFO: Joined %d Matrix users to room %s\n", joinedCount, portal.MXID)
+	s.Connector.Bridge.Log.Info().Msgf("Joined %d Matrix users to room %s", joinedCount, portal.MXID)
 	return nil
 }
 
 // BackfillAllChannels backfills all synced channels
 func (s *SyncEngine) BackfillAllChannels(ctx context.Context) error {
-	fmt.Printf("INFO: Starting backfill for all synced channels...\n")
+	s.Connector.Bridge.Log.Info().Msg("Starting backfill for all synced channels...")
 
 	backfilledCount := 0
 	for channelID := range s.syncedChannels {
 		if err := s.BackfillChannel(ctx, channelID); err != nil {
-			fmt.Printf("WARN: Failed to backfill channel %s: %v\n", channelID, err)
+			s.Connector.Bridge.Log.Warn().Msgf("Failed to backfill channel %s: %v", channelID, err)
 			continue
 		}
 		backfilledCount++
 	}
 
-	fmt.Printf("INFO: Backfilled %d channels\n", backfilledCount)
+	s.Connector.Bridge.Log.Info().Msgf("Backfilled %d channels", backfilledCount)
 	return nil
 }
 
@@ -568,12 +568,12 @@ func (s *SyncEngine) inviteChannelMembers(ctx context.Context, channelID string,
 		return fmt.Errorf("failed to get channel members: %w", err)
 	}
 
-	fmt.Printf("INFO: Would invite %d members to portal %s\n", len(members), portal.MXID)
+	s.Connector.Bridge.Log.Info().Msgf("Would invite %d members to portal %s", len(members), portal.MXID)
 
 	// Phase 7 will implement actual Matrix user invitation via Synapse Admin API
 	// For now, just log what would happen
 	for _, member := range members {
-		fmt.Printf("DEBUG: Would invite user %s to room\n", member.UserId)
+		s.Connector.Bridge.Log.Debug().Msgf("Would invite user %s to room", member.UserId)
 	}
 
 	return nil
@@ -585,7 +585,7 @@ func (s *SyncEngine) SyncTeamMemberships(ctx context.Context, teamID string, por
 		return fmt.Errorf("portal has no Matrix room ID")
 	}
 
-	fmt.Printf("INFO: Syncing team memberships for team %s to space %s\n", teamID, portal.MXID)
+	s.Connector.Bridge.Log.Info().Msgf("Syncing team memberships for team %s to space %s", teamID, portal.MXID)
 
 	// Get all team members
 	page := 0
@@ -617,7 +617,7 @@ func (s *SyncEngine) SyncTeamMemberships(ctx context.Context, teamID string, por
 			// Get user info
 			user, _, err := s.Connector.Client.GetUser(ctx, member.UserId, "")
 			if err != nil {
-				fmt.Printf("DEBUG: Failed to get user %s: %v\n", member.UserId, err)
+				s.Connector.Bridge.Log.Debug().Msgf("Failed to get user %s: %v", member.UserId, err)
 				continue
 			}
 
@@ -626,7 +626,7 @@ func (s *SyncEngine) SyncTeamMemberships(ctx context.Context, teamID string, por
 			if matrixAdmin != nil && s.Connector.Config.Mirror.CreateMatrixAccounts {
 				mxid := GenerateMatrixUserID(user, serverName)
 				if err := matrixAdmin.JoinUserToRoom(ctx, mxid, portal.MXID); err != nil {
-					fmt.Printf("DEBUG: Could not join %s to space %s: %v\n", mxid, portal.MXID, err)
+					s.Connector.Bridge.Log.Debug().Msgf("Could not join %s to space %s: %v", mxid, portal.MXID, err)
 				} else {
 					joinedCount++
 				}
@@ -639,7 +639,7 @@ func (s *SyncEngine) SyncTeamMemberships(ctx context.Context, teamID string, por
 		}
 	}
 
-	fmt.Printf("INFO: Joined %d Matrix users to space %s\n", joinedCount, portal.MXID)
+	s.Connector.Bridge.Log.Info().Msgf("Joined %d Matrix users to space %s", joinedCount, portal.MXID)
 	return nil
 }
 
