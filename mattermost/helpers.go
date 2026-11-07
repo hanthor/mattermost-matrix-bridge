@@ -22,7 +22,7 @@ func (m *MattermostConnector) EnsureGhost(ctx context.Context, mxid string) (str
 	cleanMXID := strings.TrimPrefix(mxid, "@")
 	var sb strings.Builder
 	sb.WriteString("mx.")
-	
+
 	for _, char := range cleanMXID {
 		switch char {
 		case '_':
@@ -42,7 +42,7 @@ func (m *MattermostConnector) EnsureGhost(ctx context.Context, mxid string) (str
 			}
 		}
 	}
-	
+
 	username := sb.String()
 	// Mattermost limit is usually 64
 	if len(username) > 64 {
@@ -132,7 +132,7 @@ func (m *MattermostConnector) GetClientForUser(ctx context.Context, mxid string)
 		// Should not happen, but safeguard
 		metadata = make(map[string]any)
 	}
-	
+
 	val, ok := metadata["mm_token"]
 	if ok {
 		tokenStr, ok := val.(string)
@@ -146,11 +146,11 @@ func (m *MattermostConnector) GetClientForUser(ctx context.Context, mxid string)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create access token for ghost %s: %w", mmUserID, err)
 	}
-	
+
 	// 5. Store token in metadata
 	metadata["mm_token"] = token.Token
 	ghost.Metadata = metadata
-	
+
 	// Save metadata directly to DB
 	// Use explicit update if ghost.Ghost exists, otherwise comment out if unsure
 	// Based on errors, let's assume ghost.Ghost is safe or the compiler would have complained earlier?
@@ -162,6 +162,6 @@ func (m *MattermostConnector) GetClientForUser(ctx context.Context, mxid string)
 			m.Bridge.Log.Warn().Err(err).Msg("Failed to save ghost token to database")
 		}
 	}
-	
+
 	return NewClient(m.Config.ServerURL, token.Token), mmUserID, nil
 }

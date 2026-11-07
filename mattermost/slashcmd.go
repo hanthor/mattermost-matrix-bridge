@@ -88,7 +88,7 @@ func (h *SlashCommandHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		fmt.Printf("ERROR: Failed to encode slash command response: %v\n", err)
+		h.Connector.Bridge.Log.Error().Msgf("Failed to encode slash command response: %v", err)
 	}
 }
 
@@ -243,28 +243,26 @@ func (h *SlashCommandHandler) joinResponse(ctx context.Context, userID string, a
 
 	// Try to ensure Matrix user exists (create if needed)
 	// This is optional - if admin API isn't available or lacks permissions, we'll still try to join
-	if admin != nil {
-		exists, err := admin.UserExists(ctx, matrixUserID)
-		if err != nil {
-			// Admin API not working - log warning but continue
-			// The user might already exist, or the join will fail with a clear error
-			fmt.Printf("WARN: Cannot check if Matrix user exists (admin API issue): %v\n", err)
-			fmt.Printf("INFO: Will attempt to join anyway - if user doesn't exist, join will fail\n")
-		} else if !exists {
-			// Try to create Matrix account
-			displayName := mmUser.GetDisplayName(model.ShowFullName)
-			if displayName == "" {
-				displayName = mmUser.Username
-			}
-			password := GeneratePassword()
+	exists, err := admin.UserExists(ctx, matrixUserID)
+	if err != nil {
+		// Admin API not working - log warning but continue
+		// The user might already exist, or the join will fail with a clear error
+		h.Connector.Bridge.Log.Warn().Msgf("Cannot check if Matrix user exists (admin API issue): %v", err)
+		h.Connector.Bridge.Log.Info().Msg("Will attempt to join anyway - if user doesn't exist, join will fail")
+	} else if !exists {
+		// Try to create Matrix account
+		displayName := mmUser.GetDisplayName(model.ShowFullName)
+		if displayName == "" {
+			displayName = mmUser.Username
+		}
+		password := GeneratePassword()
 
-			err = admin.CreateUser(ctx, matrixUserID, password, displayName)
-			if err != nil {
-				fmt.Printf("WARN: Failed to create Matrix user %s: %v\n", matrixUserID, err)
-				// Continue anyway - user might exist despite the check failing
-			} else {
-				fmt.Printf("INFO: Created Matrix user %s\n", matrixUserID)
-			}
+		err = admin.CreateUser(ctx, matrixUserID, password, displayName)
+		if err != nil {
+			h.Connector.Bridge.Log.Warn().Msgf("Failed to create Matrix user %s: %v", matrixUserID, err)
+			// Continue anyway - user might exist despite the check failing
+		} else {
+			h.Connector.Bridge.Log.Info().Msgf("Created Matrix user %s", matrixUserID)
 		}
 	}
 
@@ -281,7 +279,7 @@ func (h *SlashCommandHandler) joinResponse(ctx context.Context, userID string, a
 		}
 		roomID = resolvedID
 		viaServers = servers
-		fmt.Printf("DEBUG: Resolved alias %s to room %s with via servers: %v\n", roomIdentifier, roomID, viaServers)
+		h.Connector.Bridge.Log.Debug().Msgf("Resolved alias %s to room %s with via servers: %v", roomIdentifier, roomID, viaServers)
 	} else {
 		roomID = id.RoomID(roomIdentifier)
 		// Extract server from room ID for federation (e.g., !abc:matrix.org -> matrix.org)
@@ -311,12 +309,12 @@ func (h *SlashCommandHandler) joinResponse(ctx context.Context, userID string, a
 
 	// Get the ghost's MXID
 	ghostMXID := ghost.Intent.GetMXID()
-	fmt.Printf("DEBUG: Attempting to join room %s as ghost %s with via servers: %v\n", roomID, ghostMXID, viaServers)
+	h.Connector.Bridge.Log.Debug().Msgf("Attempting to join room %s as ghost %s with via servers: %v", roomID, ghostMXID, viaServers)
 
 	// Join the room using our custom federation-aware join method
 	err = admin.JoinRoomVia(ctx, ghostMXID, roomID, viaServers)
 	if err != nil {
-		fmt.Printf("ERROR: Failed to join room %s as %s: %v\n", roomID, ghostMXID, err)
+		h.Connector.Bridge.Log.Error().Msgf("Failed to join room %s as %s: %v", roomID, ghostMXID, err)
 		return &SlashCommandResponse{
 			ResponseType: "ephemeral",
 			Text:         fmt.Sprintf("❌ Failed to join Matrix room: %v\n\nThe room may be invite-only or your Matrix account may not have access.", err),
@@ -379,7 +377,7 @@ func (h *SlashCommandHandler) joinResponse(ctx context.Context, userID string, a
 	_, _, err = h.Connector.Client.AddChannelMember(ctx, createdChannel.Id, userID)
 	if err != nil {
 		// Might already be a member, continue anyway
-		fmt.Printf("DEBUG: Failed to add user to channel (may already be member): %v\n", err)
+		h.Connector.Bridge.Log.Debug().Msgf("Failed to add user to channel (may already be member): %v", err)
 	}
 
 	// Create portal mapping between Matrix room and Mattermost channel
@@ -401,7 +399,7 @@ func (h *SlashCommandHandler) joinResponse(ctx context.Context, userID string, a
 		// Save the portal
 		err = h.Connector.Bridge.DB.Portal.Update(ctx, portal.Portal)
 		if err != nil {
-			fmt.Printf("WARN: Failed to update portal MXID: %v\n", err)
+			h.Connector.Bridge.Log.Warn().Msgf("Failed to update portal MXID: %v", err)
 		}
 	}
 
@@ -409,7 +407,7 @@ func (h *SlashCommandHandler) joinResponse(ctx context.Context, userID string, a
 	// This is better than joining the bridge bot - the ghost can handle everything
 	err = portal.SetRelay(ctx, login)
 	if err != nil {
-		fmt.Printf("WARN: Failed to set relay for portal %s: %v\n", portal.MXID, err)
+		h.Connector.Bridge.Log.Warn().Msgf("Failed to set relay for portal %s: %v", portal.MXID, err)
 		// Don't fail the command - basic bridging should still work
 	}
 
@@ -520,7 +518,7 @@ func (h *SlashCommandHandler) dmResponse(ctx context.Context, userID, teamDomain
 		err = h.Connector.Bridge.DB.Ghost.Update(ctx, ghost.Ghost)
 		if err != nil {
 			// Log but continue, as in-memory metadata might be enough for this request
-			fmt.Printf("DEBUG: Failed to update ghost metadata in DB: %v\n", err)
+			h.Connector.Bridge.Log.Debug().Msgf("Failed to update ghost metadata in DB: %v", err)
 		}
 	}
 
@@ -551,7 +549,7 @@ func (h *SlashCommandHandler) dmResponse(ctx context.Context, userID, teamDomain
 	_, _, err = api.Client.CreatePost(ctx, post)
 	if err != nil {
 		// Log error but don't fail the command
-		fmt.Printf("Failed to post starter message: %v\n", err)
+		h.Connector.Bridge.Log.Error().Msgf("Failed to post starter message: %v", err)
 	}
 
 	channelID := string(chatResp.PortalKey.ID)
@@ -582,20 +580,20 @@ func (h *SlashCommandHandler) dmResponse(ctx context.Context, userID, teamDomain
 			intent := login.User.DoublePuppet(bgCtx)
 			err = intent.InviteUser(bgCtx, portal.MXID, id.UserID(matrixUserID))
 			if err != nil {
-				fmt.Printf("DEBUG: Failed to invite %s to %s: %v\n", matrixUserID, portal.MXID, err)
+				h.Connector.Bridge.Log.Debug().Msgf("Failed to invite %s to %s: %v", matrixUserID, portal.MXID, err)
 			} else {
-				fmt.Printf("DEBUG: Successfully invited %s to %s\n", matrixUserID, portal.MXID)
+				h.Connector.Bridge.Log.Debug().Msgf("Successfully invited %s to %s", matrixUserID, portal.MXID)
 			}
 
 			// Set the portal relay so that the remote Matrix user can reply without being logged in
 			err = portal.SetRelay(bgCtx, login)
 			if err != nil {
-				fmt.Printf("DEBUG: Failed to set relay for %s: %v\n", portal.MXID, err)
+				h.Connector.Bridge.Log.Debug().Msgf("Failed to set relay for %s: %v", portal.MXID, err)
 			} else {
-				fmt.Printf("DEBUG: Successfully set relay for %s to %s\n", portal.MXID, login.ID)
+				h.Connector.Bridge.Log.Debug().Msgf("Successfully set relay for %s to %s", portal.MXID, login.ID)
 			}
 		} else {
-			fmt.Printf("DEBUG: Failed to resolve portal MXID for invite after timeout\n")
+			h.Connector.Bridge.Log.Debug().Msg("Failed to resolve portal MXID for invite after timeout")
 		}
 	}()
 
@@ -655,7 +653,7 @@ func (h *SlashCommandHandler) accountResponse(ctx context.Context, userID, userN
 	domain := h.Connector.Bridge.Matrix.ServerName()
 
 	// Generate the Matrix user ID for this Mattermost user
-	matrixUserID := id.NewUserID(userName, string(domain))
+	matrixUserID := id.NewUserID(userName, domain)
 
 	// Check if Synapse Admin API is configured
 	if h.Connector.Config.SynapseAdmin.URL == "" || h.Connector.Config.SynapseAdmin.Token == "" {

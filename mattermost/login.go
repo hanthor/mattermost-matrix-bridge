@@ -30,7 +30,6 @@ func (p *PATLogin) Start(ctx context.Context) (*bridgev2.LoginStep, error) {
 	}, nil
 }
 
-
 func (p *PATLogin) SubmitUserInput(ctx context.Context, input map[string]string) (*bridgev2.LoginStep, error) {
 	token := input["token"]
 	client := NewClient(p.connector.Config.ServerURL, token)
@@ -43,7 +42,6 @@ func (p *PATLogin) SubmitUserInput(ctx context.Context, input map[string]string)
 	if err != nil {
 		return nil, err
 	}
-
 
 	return &bridgev2.LoginStep{
 		Type: bridgev2.LoginStepTypeComplete,
@@ -64,5 +62,3 @@ func (p *PATLogin) SubmitUserInput(ctx context.Context, input map[string]string)
 
 func (p *PATLogin) Cancel() {
 }
-
-

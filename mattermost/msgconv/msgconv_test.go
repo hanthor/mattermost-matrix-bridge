@@ -22,12 +22,12 @@ type MockAPI struct {
 	mock.Mock
 }
 
-func (m *MockAPI) Connect(ctx context.Context) error { return nil }
-func (m *MockAPI) Disconnect() {}
-func (m *MockAPI) IsConnected() bool { return true }
-func (m *MockAPI) IsLoggedIn() bool { return true }
+func (m *MockAPI) Connect(ctx context.Context) error                            { return nil }
+func (m *MockAPI) Disconnect()                                                  {}
+func (m *MockAPI) IsConnected() bool                                            { return true }
+func (m *MockAPI) IsLoggedIn() bool                                             { return true }
 func (m *MockAPI) IsThisUser(ctx context.Context, userID networkid.UserID) bool { return false }
-func (m *MockAPI) LogoutRemote(ctx context.Context) {}
+func (m *MockAPI) LogoutRemote(ctx context.Context)                             {}
 func (m *MockAPI) GetCapabilities(ctx context.Context, portal *bridgev2.Portal) *bridgev2.NetworkRoomCapabilities {
 	return nil
 }
@@ -84,26 +84,52 @@ func (m *MockMatrixAPI) UploadMedia(ctx context.Context, roomID id.RoomID, data 
 	}
 	return id.ContentURIString(args.String(0)), fileInfo, args.Error(2)
 }
+
 // Add other MatrixAPI methods as stubs if needed, but ToMatrix mainly uses UploadMedia (via fileToMatrix)
-func (m *MockMatrixAPI) SendMessage(ctx context.Context, roomID id.RoomID, eventType event.Type, content *event.Content, extra *bridgev2.MatrixSendExtra) (*mautrix.RespSendEvent, error) { return nil, nil }
-func (m *MockMatrixAPI) SendState(ctx context.Context, roomID id.RoomID, eventType event.Type, stateKey string, content *event.Content, ts time.Time) (*mautrix.RespSendEvent, error) { return nil, nil }
-func (m *MockMatrixAPI) MarkRead(ctx context.Context, roomID id.RoomID, eventID id.EventID, ts time.Time) error { return nil }
-func (m *MockMatrixAPI) MarkUnread(ctx context.Context, roomID id.RoomID, unread bool) error { return nil }
-func (m *MockMatrixAPI) MarkTyping(ctx context.Context, roomID id.RoomID, typingType bridgev2.TypingType, timeout time.Duration) error { return nil }
-func (m *MockMatrixAPI) DownloadMedia(ctx context.Context, url id.ContentURIString, file *event.EncryptedFileInfo) ([]byte, error) { return nil, nil }
+func (m *MockMatrixAPI) SendMessage(ctx context.Context, roomID id.RoomID, eventType event.Type, content *event.Content, extra *bridgev2.MatrixSendExtra) (*mautrix.RespSendEvent, error) {
+	return nil, nil
+}
+func (m *MockMatrixAPI) SendState(ctx context.Context, roomID id.RoomID, eventType event.Type, stateKey string, content *event.Content, ts time.Time) (*mautrix.RespSendEvent, error) {
+	return nil, nil
+}
+func (m *MockMatrixAPI) MarkRead(ctx context.Context, roomID id.RoomID, eventID id.EventID, ts time.Time) error {
+	return nil
+}
+func (m *MockMatrixAPI) MarkUnread(ctx context.Context, roomID id.RoomID, unread bool) error {
+	return nil
+}
+func (m *MockMatrixAPI) MarkTyping(ctx context.Context, roomID id.RoomID, typingType bridgev2.TypingType, timeout time.Duration) error {
+	return nil
+}
+func (m *MockMatrixAPI) DownloadMedia(ctx context.Context, url id.ContentURIString, file *event.EncryptedFileInfo) ([]byte, error) {
+	return nil, nil
+}
 
 // Additional missing methods from Interface
 func (m *MockMatrixAPI) SetDisplayName(ctx context.Context, name string) error { return nil }
-func (m *MockMatrixAPI) SetAvatarURL(ctx context.Context, avatarURL id.ContentURIString) error { return nil }
+func (m *MockMatrixAPI) SetAvatarURL(ctx context.Context, avatarURL id.ContentURIString) error {
+	return nil
+}
 func (m *MockMatrixAPI) SetExtraProfileMeta(ctx context.Context, data any) error { return nil }
-func (m *MockMatrixAPI) CreateRoom(ctx context.Context, req *mautrix.ReqCreateRoom) (id.RoomID, error) { return "", nil }
-func (m *MockMatrixAPI) DeleteRoom(ctx context.Context, roomID id.RoomID, puppetsOnly bool) error { return nil }
-func (m *MockMatrixAPI) InviteUser(ctx context.Context, roomID id.RoomID, userID id.UserID) error { return nil }
+func (m *MockMatrixAPI) CreateRoom(ctx context.Context, req *mautrix.ReqCreateRoom) (id.RoomID, error) {
+	return "", nil
+}
+func (m *MockMatrixAPI) DeleteRoom(ctx context.Context, roomID id.RoomID, puppetsOnly bool) error {
+	return nil
+}
+func (m *MockMatrixAPI) InviteUser(ctx context.Context, roomID id.RoomID, userID id.UserID) error {
+	return nil
+}
 func (m *MockMatrixAPI) EnsureJoined(ctx context.Context, roomID id.RoomID) error { return nil }
-func (m *MockMatrixAPI) EnsureInvited(ctx context.Context, roomID id.RoomID, userID id.UserID) error { return nil }
-func (m *MockMatrixAPI) TagRoom(ctx context.Context, roomID id.RoomID, tag event.RoomTag, isTagged bool) error { return nil }
-func (m *MockMatrixAPI) MuteRoom(ctx context.Context, roomID id.RoomID, until time.Time) error { return nil }
-
+func (m *MockMatrixAPI) EnsureInvited(ctx context.Context, roomID id.RoomID, userID id.UserID) error {
+	return nil
+}
+func (m *MockMatrixAPI) TagRoom(ctx context.Context, roomID id.RoomID, tag event.RoomTag, isTagged bool) error {
+	return nil
+}
+func (m *MockMatrixAPI) MuteRoom(ctx context.Context, roomID id.RoomID, until time.Time) error {
+	return nil
+}
 
 func TestToMatrix_Text(t *testing.T) {
 	mc := &MessageConverter{
@@ -120,13 +146,13 @@ func TestToMatrix_Text(t *testing.T) {
 			PortalKey: networkid.PortalKey{ID: networkid.PortalID("channel1")},
 		},
 	}
-	
+
 	post := &model.Post{
 		Message: "Hello *world*!",
 	}
-	
+
 	converted := mc.ToMatrix(ctx, portal, nil, source, post)
-	
+
 	assert.Len(t, converted.Parts, 1)
 	assert.Equal(t, event.EventMessage, converted.Parts[0].Type)
 	// Output seems to prefer underscores for emphasis and strip outer p tags?
@@ -143,17 +169,17 @@ func TestToMatrix_File(t *testing.T) {
 	ctx := context.Background()
 	mockAPI := new(MockAPI)
 	mockMatrix := new(MockMatrixAPI)
-	
+
 	source := &bridgev2.UserLogin{
 		Client: mockAPI,
 	}
 	portal := &bridgev2.Portal{
 		Portal: &database.Portal{
 			PortalKey: networkid.PortalKey{ID: networkid.PortalID("channel1")},
-			MXID: id.RoomID("!room:example.com"),
+			MXID:      id.RoomID("!room:example.com"),
 		},
 	}
-	
+
 	fileID := "file123"
 	fileContent := []byte("fake image")
 	fileInfo := &model.FileInfo{
@@ -168,13 +194,13 @@ func TestToMatrix_File(t *testing.T) {
 		Message: "",
 		FileIds: []string{fileID},
 	}
-	
+
 	// Mock GetFileWithInfo to return both content and metadata
 	mockAPI.On("GetFileWithInfo", mock.Anything, fileID).Return(fileContent, fileInfo, nil)
 	mockMatrix.On("UploadMedia", mock.Anything, portal.MXID, fileContent, "test.png", "image/png").Return("mxc://example.com/xyz", nil, nil)
 
 	converted := mc.ToMatrix(ctx, portal, mockMatrix, source, post)
-	
+
 	assert.Len(t, converted.Parts, 1)
 	assert.Equal(t, event.EventMessage, converted.Parts[0].Type)
 	assert.Equal(t, "test.png", converted.Parts[0].Content.Body)

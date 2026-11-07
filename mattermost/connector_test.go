@@ -10,7 +10,6 @@ import (
 	"maunium.net/go/mautrix/id"
 )
 
-
 func TestMattermostConnector_GetName(t *testing.T) {
 	connector := &MattermostConnector{}
 	name := connector.GetName()
@@ -36,7 +35,6 @@ func TestMattermostConnector_CreateLogin(t *testing.T) {
 			MXID: id.UserID("test-user"),
 		},
 	}
-
 
 	// Test valid flow
 	process, err := connector.CreateLogin(context.Background(), user, "personal-access-token")

@@ -47,3 +47,5 @@ Thumbs.db
 
 slack/
 .deploy*
+# Build output
+/mattermost-matrix-bridge

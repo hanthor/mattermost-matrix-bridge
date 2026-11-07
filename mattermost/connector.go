@@ -6,14 +6,15 @@ import (
 	"net/http"
 	"sync"
 
+	_ "embed"
+	"time"
+
+	"github.com/hanthor/mattermost-matrix-bridge/mattermost/msgconv"
+	"github.com/mattermost/mattermost/server/public/model"
 	"go.mau.fi/util/configupgrade"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
-	"github.com/mattermost/mattermost/server/public/model"
-	"github.com/hanthor/mattermost-matrix-bridge/mattermost/msgconv"
-	_ "embed"
-	"time"
 )
 
 //go:embed example-config.yaml
@@ -56,12 +57,12 @@ type NetworkConfig struct {
 }
 
 type MattermostConnector struct {
-	Bridge *bridgev2.Bridge
-	Config *NetworkConfig
+	Bridge   *bridgev2.Bridge
+	Config   *NetworkConfig
 	Client   *Client
 	WSClient *model.WebSocketClient
 	MsgConv  *msgconv.MessageConverter
-	
+
 	usersLock sync.RWMutex
 	users     map[networkid.UserLoginID]*bridgev2.UserLogin
 
@@ -70,9 +71,6 @@ type MattermostConnector struct {
 
 	ctx context.Context
 }
-
-
-
 
 func (m *MattermostConnector) GetDBMetaTypes() database.MetaTypes {
 	return database.MetaTypes{}
@@ -86,7 +84,7 @@ func (m *MattermostConnector) UpgradeConfig(helper configupgrade.Helper) {
 	helper.Copy(configupgrade.Str, "server_url")
 	helper.Copy(configupgrade.Str, "admin_token")
 	helper.Copy(configupgrade.Str, "mode")
-	
+
 	// Mirror mode settings
 	helper.Copy(configupgrade.Bool, "mirror", "sync_all_teams")
 	helper.Copy(configupgrade.Bool, "mirror", "sync_all_channels")
@@ -95,7 +93,7 @@ func (m *MattermostConnector) UpgradeConfig(helper configupgrade.Helper) {
 	helper.Copy(configupgrade.Bool, "mirror", "create_matrix_accounts")
 	helper.Copy(configupgrade.Bool, "mirror", "sync_history")
 	helper.Copy(configupgrade.Int, "mirror", "history_limit")
-	
+
 	// Synapse admin settings
 	helper.Copy(configupgrade.Str, "synapse_admin", "url")
 	helper.Copy(configupgrade.Str, "synapse_admin", "token")
@@ -109,13 +107,9 @@ func (m *MattermostConnector) IsMirrorMode() bool {
 	return m.Config != nil && m.Config.Mode == ModeMirror
 }
 
-
-
-
 func (m *MattermostConnector) GetCapabilities() *bridgev2.NetworkGeneralCapabilities {
 	return &bridgev2.NetworkGeneralCapabilities{}
 }
-
 
 func (m *MattermostConnector) GetName() bridgev2.BridgeName {
 	return bridgev2.BridgeName{
@@ -126,18 +120,11 @@ func (m *MattermostConnector) GetName() bridgev2.BridgeName {
 	}
 }
 
-
-
 func (m *MattermostConnector) Init(br *bridgev2.Bridge) {
 	m.Bridge = br
 	m.users = make(map[networkid.UserLoginID]*bridgev2.UserLogin)
 	m.MsgConv = msgconv.New(br)
 }
-
-
-
-
-
 
 func (m *MattermostConnector) GetUsername(ctx context.Context, userID string) string {
 	m.userCacheLock.RLock()
@@ -172,8 +159,8 @@ func (m *MattermostConnector) Start(ctx context.Context) error {
 	if mode == "" {
 		mode = ModePuppet // Default to puppet mode
 	}
-	fmt.Printf("INFO: Starting Mattermost bridge in %s mode\n", mode)
-	
+	m.Bridge.Log.Info().Msgf("Starting Mattermost bridge in %s mode", mode)
+
 	m.Client = NewClient(m.Config.ServerURL, m.Config.AdminToken)
 	err := m.Client.Connect(ctx)
 	if err != nil {
@@ -181,38 +168,38 @@ func (m *MattermostConnector) Start(ctx context.Context) error {
 	}
 
 	m.StartWebSocket()
-	
+
 	// Mirror mode: start server sync engine
 	if m.IsMirrorMode() {
-		fmt.Printf("INFO: Mirror mode enabled - will sync all teams/channels/users\n")
+		m.Bridge.Log.Info().Msg("Mirror mode enabled - will sync all teams/channels/users")
 		go m.startMirrorSync(ctx)
 	}
-	
+
 	// Auto-login sysadmin if no users are logged in
 	go func() {
 		time.Sleep(2 * time.Second)
 		m.usersLock.RLock()
 		userCount := len(m.users)
 		m.usersLock.RUnlock()
-		
+
 		if userCount == 0 && m.Config.AdminToken != "" {
-			fmt.Printf("DEBUG: Auto-provisioning sysadmin login\n")
+			m.Bridge.Log.Debug().Msg("Auto-provisioning sysadmin login")
 			me, _, err := m.Client.GetMe(ctx, "")
 			if err == nil {
 				// Get or create the user via the bridge's API
 				// We now use the username for the ghost ID to make MXIDs readable
 				ghost, err := m.Bridge.GetGhostByID(ctx, networkid.UserID(me.Username))
 				if err != nil {
-					fmt.Printf("DEBUG: Failed to get ghost for auto-login: %v\n", err)
+					m.Bridge.Log.Debug().Msgf("Failed to get ghost for auto-login: %v", err)
 					return
 				}
 				mxid := ghost.Intent.GetMXID()
 				user, err := m.Bridge.GetUserByMXID(ctx, mxid)
 				if err != nil {
-					fmt.Printf("DEBUG: Failed to get user: %v\n", err)
+					m.Bridge.Log.Debug().Msgf("Failed to get user: %v", err)
 					return
 				}
-				
+
 				// Create login via bridge's user management
 				loginID := networkid.UserLoginID(me.Username)
 				login, err := user.NewLogin(ctx, &database.UserLogin{
@@ -226,30 +213,27 @@ func (m *MattermostConnector) Start(ctx context.Context) error {
 					},
 				}, nil)
 				if err != nil {
-					fmt.Printf("DEBUG: Failed to create login: %v\n", err)
+					m.Bridge.Log.Debug().Msgf("Failed to create login: %v", err)
 					return
 				}
-				
+
 				err = m.LoadUserLogin(ctx, login)
 				if err != nil {
-					fmt.Printf("DEBUG: Failed to load auto-login: %v\n", err)
+					m.Bridge.Log.Debug().Msgf("Failed to load auto-login: %v", err)
 				} else {
-					fmt.Printf("DEBUG: Successfully auto-provisioned sysadmin login\n")
+					m.Bridge.Log.Debug().Msg("Successfully auto-provisioned sysadmin login")
 				}
 			} else {
-				fmt.Printf("DEBUG: Failed to get sysadmin info for auto-login: %v\n", err)
+				m.Bridge.Log.Debug().Msgf("Failed to get sysadmin info for auto-login: %v", err)
 			}
 		}
 	}()
 
 	// Start slash command HTTP handler (listens on port 8081)
 	go m.startSlashCommandServer()
-	
+
 	return nil
 }
-
-
-
 
 func (m *MattermostConnector) Stop() {
 	// Stop background processes
@@ -259,20 +243,20 @@ func (m *MattermostConnector) Stop() {
 // It listens on port 8081 by default.
 func (m *MattermostConnector) startSlashCommandServer() {
 	handler := NewSlashCommandHandler(m, m.Config.SlashCommandToken)
-	
+
 	mux := http.NewServeMux()
 	mux.Handle("/mattermost/command", handler)
-	
+
 	addr := ":8081"
-	fmt.Printf("INFO: Starting slash command server on %s\n", addr)
-	
+	m.Bridge.Log.Info().Msgf("Starting slash command server on %s", addr)
+
 	server := &http.Server{
 		Addr:    addr,
 		Handler: mux,
 	}
-	
+
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		fmt.Printf("ERROR: Slash command server failed: %v\n", err)
+		m.Bridge.Log.Error().Msgf("Slash command server failed: %v", err)
 	}
 }
 
@@ -289,13 +273,11 @@ func (m *MattermostConnector) LoadUserLogin(ctx context.Context, login *bridgev2
 	return nil
 }
 
-
-
 func (m *MattermostConnector) GetLoginFlows() []bridgev2.LoginFlow {
 	return []bridgev2.LoginFlow{
 		{
-			ID: "personal-access-token",
-			Name: "Personal Access Token",
+			ID:          "personal-access-token",
+			Name:        "Personal Access Token",
 			Description: "Login using a Mattermost Personal Access Token",
 		},
 	}
@@ -312,13 +294,15 @@ func (m *MattermostConnector) CreateLogin(ctx context.Context, user *bridgev2.Us
 	return nil, fmt.Errorf("unknown login flow ID: %s", flowID)
 }
 
-
 func (m *MattermostConnector) GetBridgeInfoVersion() (info, capabilities int) {
 	return 0, 0
 }
 
 func (m *MattermostConnector) NewNetworkAPI(login *bridgev2.UserLogin) (bridgev2.NetworkAPI, error) {
-	fmt.Printf("DEBUG: NewNetworkAPI called for login %s\n", login.ID)
+	if login == nil {
+		return nil, fmt.Errorf("NewNetworkAPI called with nil login")
+	}
+	m.Bridge.Log.Debug().Msgf("NewNetworkAPI called for login %s", login.ID)
 	api := &MattermostAPI{
 		Login:     login,
 		Connector: m,
@@ -328,13 +312,9 @@ func (m *MattermostConnector) NewNetworkAPI(login *bridgev2.UserLogin) (bridgev2
 	m.users[login.ID] = login
 	m.usersLock.Unlock()
 
-	if login != nil {
-
-		meta, ok := login.Metadata.(map[string]any)
-		if ok {
-			if token, ok := meta["token"].(string); ok && token != "" {
-				api.Client = NewClient(m.Config.ServerURL, token)
-			}
+	if meta, ok := login.Metadata.(map[string]any); ok {
+		if token, ok := meta["token"].(string); ok && token != "" {
+			api.Client = NewClient(m.Config.ServerURL, token)
 		}
 	}
 
@@ -353,8 +333,3 @@ func (m *MattermostConnector) GetUsers() []*bridgev2.UserLogin {
 	}
 	return users
 }
-
-
-
-
-
